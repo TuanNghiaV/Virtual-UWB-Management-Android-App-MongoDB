@@ -1,0 +1,33 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Android Studio / IntelliJ
+*.jks
+*.keystore
+google-services.json
+
+# Supabase / Environment
+.env
+.env.*
+supabase/.temp/
+
+# Build outputs
+/app/build/
+/build_output.txt
+/compile_output.txt
+/assemble_output.txt
+*.log

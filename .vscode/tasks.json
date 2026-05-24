@@ -1,0 +1,247 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "gradle compileDebugKotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			]
+		},
+		{
+			"label": "Compile Debug Kotlin",
+			"type": "shell",
+			"command": "cd c:\\Users\\TuanNghia\\AndroidStudioProjects\\VirtualUWB && ./gradlew :app:compileDebugKotlin"
+		},
+		{
+			"label": "Compile Debug Kotlin",
+			"type": "shell",
+			"command": "./gradlew",
+			"args": [
+				":app:compileDebugKotlin"
+			],
+			"isBackground": false
+		}
+	]
+}

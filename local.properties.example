@@ -1,0 +1,13 @@
+## This file is a template. Rename it to local.properties and fill in your own values.
+# Do NOT check local.properties into Version Control.
+
+# Location of the SDK.
+sdk.dir=C\:\\path\\to\\your\\Android\\Sdk
+
+# Supabase configuration for VirtualUWB
+supabase.url=https://your_supabase_project_ref.supabase.co
+supabase.publishable.key=your_supabase_publishable_key
+supabase.anon.key=your_supabase_anon_key
+
+# Google Maps configuration
+MAPS_API_KEY=your_google_maps_android_api_key
