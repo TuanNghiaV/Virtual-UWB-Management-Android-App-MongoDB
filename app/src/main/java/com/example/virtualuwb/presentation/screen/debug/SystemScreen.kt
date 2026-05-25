@@ -142,7 +142,8 @@ fun DebugScreen(
             .fillMaxSize()
             .background(ScreenBackground)
             .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // ── Header ──────────────────────────────────────────────────────────
@@ -166,9 +167,21 @@ fun DebugScreen(
                 }
                 
                 StatusPill(
-                    label = if (uiState.dataSourceMode == DataSourceMode.SUPABASE) "Supabase Mode" else "Local Mode",
-                    color = if (uiState.dataSourceMode == DataSourceMode.SUPABASE) PrimaryIndigo else WarningOrange,
-                    icon = if (uiState.dataSourceMode == DataSourceMode.SUPABASE) Icons.Default.CloudDone else Icons.Default.CloudOff
+                    label = when (uiState.dataSourceMode) {
+                        DataSourceMode.SUPABASE -> "Supabase Mode (Legacy)"
+                        DataSourceMode.API_MONGODB -> "MongoDB API Mode"
+                        DataSourceMode.LOCAL -> "Local Mode"
+                    },
+                    color = when (uiState.dataSourceMode) {
+                        DataSourceMode.SUPABASE -> PrimaryIndigo
+                        DataSourceMode.API_MONGODB -> SuccessGreen
+                        DataSourceMode.LOCAL -> WarningOrange
+                    },
+                    icon = when (uiState.dataSourceMode) {
+                        DataSourceMode.SUPABASE -> Icons.Default.CloudDone
+                        DataSourceMode.API_MONGODB -> Icons.Default.Cloud
+                        DataSourceMode.LOCAL -> Icons.Default.CloudOff
+                    }
                 )
             }
         }
@@ -179,6 +192,57 @@ fun DebugScreen(
                 selectedTag = uiState.selectedTag,
                 anchors = uiState.anchors
             )
+        }
+
+        // ── Quick Demo Actions ────────────────────────────────────────────
+        SystemCard(
+            title = "Quick Demo Actions",
+            icon = Icons.Default.Layers,
+            subtitle = "Fast access for emulator verification"
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SystemButton(
+                    text = if (isRunningDemoAction) "Working..." else "Move to Safe Zone",
+                    onClick = { runDemoAction("Move to Safe Zone", onMoveAllTagsToSafeZone) },
+                    enabled = !isRunningDemoAction,
+                    modifier = Modifier.weight(1f),
+                    containerColor = SuccessGreen,
+                    contentColor = Color.White
+                )
+                SystemButton(
+                    text = if (isRunningDemoAction) "Working..." else "Move to Restricted Zone",
+                    onClick = { runDemoAction("Move to Restricted Zone", onMoveAllTagsToRestrictedZone) },
+                    enabled = !isRunningDemoAction,
+                    modifier = Modifier.weight(1f),
+                    containerColor = ErrorRed,
+                    contentColor = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SystemButton(
+                text = if (isRunningDemoAction) "Working..." else "Randomize Tags",
+                onClick = { runDemoAction("Randomize Tags", onRandomizeTagsInsideAnchors) },
+                enabled = !isRunningDemoAction,
+                containerColor = PrimaryIndigo,
+                contentColor = Color.White,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            when {
+                isRunningDemoAction -> {
+                    StatusText("Applying demo action...", isError = false)
+                }
+                demoActionResult != null -> {
+                    StatusText(
+                        demoActionResult!!,
+                        isError = demoActionResult!!.startsWith("No") ||
+                            demoActionResult!!.startsWith("At least") ||
+                            demoActionResult!!.startsWith("Error")
+                    )
+                }
+            }
         }
 
         // ── Data Source Card ───────────────────────────────────────────────
@@ -196,25 +260,30 @@ fun DebugScreen(
             
             Spacer(modifier = Modifier.height(12.dp))
             
+            val nextModeLabel = when (uiState.dataSourceMode) {
+                DataSourceMode.LOCAL -> "Switch to MongoDB API"
+                DataSourceMode.SUPABASE -> "Switch to MongoDB API"
+                DataSourceMode.API_MONGODB -> "Switch to Local"
+            }
             SystemButton(
-                text = if (uiState.dataSourceMode == DataSourceMode.LOCAL) "Switch to Supabase" else "Switch to Local",
+                text = nextModeLabel,
                 onClick = onToggleDataSourceMode,
                 enabled = !uiState.isRemoteLoading,
                 isSecondary = true
             )
         }
 
-        // ── Supabase Connectivity ───────────────────────────────────────────
+        // ── Backend API Connectivity ──────────────────────────────────────
         SystemCard(
-            title = "Cloud Connectivity",
+            title = "Backend API Connectivity",
             icon = Icons.Default.Wifi,
-            subtitle = "Supabase API connection status"
+            subtitle = "MongoDB backend API connection status"
         ) {
-            DetailRow("Backend", "Supabase PostgreSQL")
+            DetailRow("Backend", "MongoDB Atlas API")
             DetailRow("API Status", if (supabaseTestResult?.contains("Connected") == true) "Online" else "Idle")
 
             if (supabaseTestResult != null) {
-                StatusText(supabaseTestResult!!, isError = !supabaseTestResult!!.startsWith("Connected"))
+                StatusText(supabaseTestResult!!, isError = supabaseTestResult!!.contains("Failed"))
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -225,11 +294,14 @@ fun DebugScreen(
                     scope.launch {
                         isTestingSupabase = true
                         supabaseTestResult = null
-                        val result = SupabaseUwbRepository().testConnection()
-                        supabaseTestResult = result.fold(
-                            onSuccess = { count -> "Connected. Devices fetched: $count" },
-                            onFailure = { error -> "Failed: ${error.message ?: error::class.simpleName}" }
-                        )
+                        try {
+                            val apiRepo = com.example.virtualuwb.data.repository.ApiUwbRepository()
+                            apiRepo.refreshDevices()
+                            val count = apiRepo.getCurrentDevices().size
+                            supabaseTestResult = "Connected (MongoDB). Devices fetched: $count"
+                        } catch (e: Exception) {
+                            supabaseTestResult = "Failed (MongoDB): ${e.message ?: e::class.simpleName}"
+                        }
                         isTestingSupabase = false
                     }
                 },
@@ -237,6 +309,7 @@ fun DebugScreen(
             )
         }
 
+        /*
         // ── Position Logging ───────────────────────────────────────────────
         SystemCard(
             title = "Position Logging",
@@ -283,6 +356,7 @@ fun DebugScreen(
                 )
             }
         }
+        */
 
         // ── Geofence Events ────────────────────────────────────────────────
         SystemCard(
@@ -305,7 +379,7 @@ fun DebugScreen(
                         isFetchingEvents = true
                         recentEventResult = null
                         try {
-                            val repo = com.example.virtualuwb.data.repository.SupabaseGeofenceEventRepository()
+                            val repo = com.example.virtualuwb.data.repository.ApiGeofenceEventRepository()
                             val events = repo.getRecentEvents(5)
                             recentEventResult = if (events.isEmpty()) {
                                 "No geofence events found"
@@ -324,65 +398,6 @@ fun DebugScreen(
                 enabled = !isFetchingEvents,
                 icon = Icons.Default.Refresh
             )
-        }
-
-        // ── Demo Controls ────────────────────────────────────────────────
-        SystemCard(
-            title = "Demo controls",
-            icon = Icons.Default.Layers,
-            subtitle = "Quickly reposition tags for geofence and realtime event testing"
-        ) {
-            Text(
-                text = "Uses the active data source mode and keeps anchors unchanged.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SystemButton(
-                    text = if (isRunningDemoAction) "Working..." else "Move all to Safe Zone",
-                    onClick = { runDemoAction("Move all to Safe Zone", onMoveAllTagsToSafeZone) },
-                    enabled = !isRunningDemoAction,
-                    modifier = Modifier.weight(1f),
-                    containerColor = SuccessGreen,
-                    contentColor = Color.White
-                )
-                SystemButton(
-                    text = if (isRunningDemoAction) "Working..." else "Move all to Restricted Zone",
-                    onClick = { runDemoAction("Move all to Restricted Zone", onMoveAllTagsToRestrictedZone) },
-                    enabled = !isRunningDemoAction,
-                    modifier = Modifier.weight(1f),
-                    containerColor = ErrorRed,
-                    contentColor = Color.White
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            SystemButton(
-                text = if (isRunningDemoAction) "Working..." else "Randomize inside Anchors",
-                onClick = { runDemoAction("Randomize inside Anchors", onRandomizeTagsInsideAnchors) },
-                enabled = !isRunningDemoAction,
-                containerColor = PrimaryIndigo,
-                contentColor = Color.White,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            when {
-                isRunningDemoAction -> {
-                    StatusText("Applying demo action...", isError = false)
-                }
-                demoActionResult != null -> {
-                    StatusText(
-                        demoActionResult!!,
-                        isError = demoActionResult!!.startsWith("No") ||
-                            demoActionResult!!.startsWith("At least") ||
-                            demoActionResult!!.startsWith("Error")
-                    )
-                }
-            }
         }
 
         SystemCard(
@@ -407,40 +422,6 @@ fun DebugScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-
-        // ── Diagnostics / App State ─────────────────────────────────────────
-        SystemCard(
-            title = "Diagnostics",
-            icon = Icons.Default.Info,
-            subtitle = "Internal application state"
-        ) {
-            Text("Environment", style = MaterialTheme.typography.labelMedium, color = PrimaryIndigo, fontWeight = FontWeight.Bold)
-            DetailRow("Phone Position", "${formatCoordinate(uiState.phonePosition.latitude)}, ${formatCoordinate(uiState.phonePosition.longitude)}")
-            DetailRow("Azimuth", "${uiState.phoneAzimuthDegrees}°")
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = LightBorder)
-            
-            Text("Inventory", style = MaterialTheme.typography.labelMedium, color = PrimaryIndigo, fontWeight = FontWeight.Bold)
-            DetailRow("Total Devices", "${uiState.devices.size}")
-            DetailRow("Geofences", "${uiState.geofences.size}")
-            DetailRow("Active Trails", "${uiState.tagTrails.size}")
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = LightBorder)
-            
-            Text("Spatial Context", style = MaterialTheme.typography.labelMedium, color = PrimaryIndigo, fontWeight = FontWeight.Bold)
-            if (uiState.tags.isEmpty()) {
-                DetailRow("Status", "No tags active")
-            } else {
-                uiState.tags.forEach { tag ->
-                    val containing = GeofenceMath.findContainingGeofences(tag.position, uiState.geofences)
-                    val restricted = containing.any { it.isRestricted }
-                    val locationStr = if (containing.isEmpty()) "Outside" else containing.joinToString { it.name }
-                    DetailRow(tag.name, if (restricted) "RESTRICTED ($locationStr)" else locationStr)
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -463,7 +444,7 @@ private fun SelectedTagDetailPanel(
         subtitle = "Live proximity tracking"
     ) {
         DetailRow(label = "Position", value = "${formatCoordinate(selectedTag.latitude)}, ${formatCoordinate(selectedTag.longitude)}")
-        
+
         if (nearest != null) {
             val (nearestAnchor, nearestDistance) = nearest
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = LightBorder)

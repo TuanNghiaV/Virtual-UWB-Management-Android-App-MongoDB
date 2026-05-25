@@ -35,7 +35,7 @@ data class MapUiState(
     val isPhoneGpsLocation: Boolean = false,
     val tagTrails: Map<String, List<GeoPoint>> = emptyMap(),
     val geofences: List<Geofence> = emptyList(),
-    val dataSourceMode: DataSourceMode = DataSourceMode.SUPABASE,
+    val dataSourceMode: DataSourceMode = DataSourceMode.API_MONGODB,
     val isRemoteLoading: Boolean = false,
     val remoteStatusMessage: String? = null,
     val isPositionLoggingEnabled: Boolean = true,

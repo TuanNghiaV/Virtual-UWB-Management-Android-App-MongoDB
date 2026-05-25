@@ -364,6 +364,7 @@ private fun MapItemInfoCard(
             }
             Text(text = roleText, style = MaterialTheme.typography.bodyMedium)
             
+            /*
             if (item is MapItemInfo.Tag) {
                 Button(
                     onClick = { onNavigateToTag(item.device.id) },
@@ -374,6 +375,7 @@ private fun MapItemInfoCard(
                     Text("Chỉ đường")
                 }
             }
+            */
         }
     }
 }
@@ -395,12 +397,6 @@ private fun TargetTrackingCard(
 
     val subtitle = when {
         displayTag == null -> "Select target"
-        routeResult != null && routeResult.success -> {
-            val dist = routeResult.distanceMeters?.let { "$it m" } ?: "?? m"
-            val durRaw = routeResult.duration?.replace("s", "")?.toIntOrNull() ?: 0
-            val durText = if (durRaw > 60) "${durRaw / 60} phút" else "$durRaw giây"
-            "$dist · $durText · Google route"
-        }
         distanceMeters != null && directionLabel != null ->
             String.format(java.util.Locale.US, "%.1f m · %s (Direct guidance)", distanceMeters, directionLabel)
         distanceMeters != null -> String.format(java.util.Locale.US, "%.1f m (Direct guidance)", distanceMeters)

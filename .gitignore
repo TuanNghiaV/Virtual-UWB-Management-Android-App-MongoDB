@@ -31,3 +31,13 @@ supabase/.temp/
 /compile_output.txt
 /assemble_output.txt
 *.log
+
+# Backend configurations
+backend/.env
+backend/.env.*
+backend/node_modules/
+backend/dist/
+
+# Local UI dumps and screenshots
+/*.xml
+/*.png

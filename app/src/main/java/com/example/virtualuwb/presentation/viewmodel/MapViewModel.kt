@@ -10,12 +10,16 @@ import com.example.virtualuwb.data.repository.SupabaseGeofenceRepository
 import com.example.virtualuwb.data.repository.SupabasePositionLogRepository
 import com.example.virtualuwb.data.repository.SupabaseUwbRepository
 import com.example.virtualuwb.data.repository.SupabaseGoogleRoutesRepository
+import com.example.virtualuwb.data.repository.ApiGoogleRoutesRepository
+import com.example.virtualuwb.data.repository.ApiUwbRepository
+import com.example.virtualuwb.data.repository.ApiGeofenceRepository
 import com.example.virtualuwb.domain.model.RoutePoint
 import com.example.virtualuwb.domain.model.RouteResult
 import com.example.virtualuwb.domain.model.DataSourceMode
 import com.example.virtualuwb.domain.model.GeoPoint
 import com.example.virtualuwb.domain.model.Geofence
 import com.example.virtualuwb.domain.model.UwbDevice
+import com.example.virtualuwb.domain.repository.GoogleRoutesRepository
 import com.example.virtualuwb.domain.repository.GeofenceRepository
 import com.example.virtualuwb.domain.repository.UwbRepository
 import com.example.virtualuwb.simulation.UwbSimulationEngine
@@ -43,18 +47,20 @@ class MapViewModel : ViewModel() {
 
     private val localRepository = FakeUwbRepository()
     private val remoteRepository = SupabaseUwbRepository()
+    private val apiRepository = ApiUwbRepository()
 
     private val localGeofenceRepository = FakeGeofenceRepository()
     private val remoteGeofenceRepository = SupabaseGeofenceRepository()
+    private val apiGeofenceRepository = ApiGeofenceRepository()
     private val positionLogRepository = SupabasePositionLogRepository()
     private val geofenceEventRepository = SupabaseGeofenceEventRepository()
 
-    private var activeRepository: UwbRepository = remoteRepository
-    private var activeGeofenceRepository: GeofenceRepository = remoteGeofenceRepository
+    private var activeRepository: UwbRepository = apiRepository
+    private var activeGeofenceRepository: GeofenceRepository = apiGeofenceRepository
 
     private var simulationEngine = UwbSimulationEngine(activeRepository, viewModelScope)
 
-    private val dataSourceModeFlow = MutableStateFlow(DataSourceMode.SUPABASE)
+    private val dataSourceModeFlow = MutableStateFlow(DataSourceMode.API_MONGODB)
     private val isRemoteLoadingFlow = MutableStateFlow(false)
     private val remoteStatusMessageFlow = MutableStateFlow<String?>(null)
     
@@ -67,7 +73,8 @@ class MapViewModel : ViewModel() {
     private val routeToSelectedTagFlow = MutableStateFlow<RouteResult?>(null)
     private val isRouteLoadingFlow = MutableStateFlow(false)
     private val routeErrorFlow = MutableStateFlow<String?>(null)
-    private val googleRoutesRepository = SupabaseGoogleRoutesRepository()
+    private val supabaseGoogleRoutesRepository = SupabaseGoogleRoutesRepository()
+    private val apiGoogleRoutesRepository = ApiGoogleRoutesRepository()
     
     private val devicesBridgeFlow = MutableStateFlow<List<UwbDevice>>(localRepository.getCurrentDevices())
     private val geofencesBridgeFlow = MutableStateFlow<List<Geofence>>(localGeofenceRepository.getCurrentGeofences())
@@ -109,14 +116,14 @@ class MapViewModel : ViewModel() {
 
         viewModelScope.launch {
             isRemoteLoadingFlow.value = true
-            remoteStatusMessageFlow.value = "Connecting to Supabase..."
+            remoteStatusMessageFlow.value = "Connecting to MongoDB API..."
 
             try {
-                remoteRepository.refreshDevices()
-                remoteGeofenceRepository.refreshGeofences()
-                remoteStatusMessageFlow.value = "Supabase connected. Devices: ${remoteRepository.getCurrentDevices().size}"
+                apiRepository.refreshDevices()
+                apiGeofenceRepository.refreshGeofences()
+                remoteStatusMessageFlow.value = "MongoDB API connected. Devices: ${apiRepository.getCurrentDevices().size}"
             } catch (e: Exception) {
-                remoteStatusMessageFlow.value = "Supabase failed: ${e.message ?: e::class.simpleName}"
+                remoteStatusMessageFlow.value = "MongoDB API failed: ${e.message ?: e::class.simpleName}"
             } finally {
                 isRemoteLoadingFlow.value = false
             }
@@ -390,6 +397,7 @@ class MapViewModel : ViewModel() {
         isRemoteLoadingFlow.value = false
         remoteStatusMessageFlow.value = "Using local repository"
         clearTrails()
+        refreshSelectedRouteIfPossible()
         syncSimulationToSpeed()
     }
 
@@ -418,6 +426,7 @@ class MapViewModel : ViewModel() {
                 lastPositionLogAtMillis = System.currentTimeMillis() // Reset timer on switch
                 remoteStatusMessageFlow.value = "Supabase connected. Devices: ${remoteRepository.getCurrentDevices().size}"
                 clearTrails()
+                refreshSelectedRouteIfPossible()
                 syncSimulationToSpeed()
             } catch (e: Exception) {
                 remoteStatusMessageFlow.value = "Supabase failed: ${e.message ?: e::class.simpleName}"
@@ -427,11 +436,46 @@ class MapViewModel : ViewModel() {
         }
     }
 
+    fun switchToApiMongodb() {
+        if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) return
+
+        viewModelScope.launch {
+            isRemoteLoadingFlow.value = true
+            remoteStatusMessageFlow.value = "Connecting to MongoDB API..."
+            simulationEngine.stop()
+
+            try {
+                apiRepository.refreshDevices()
+                apiGeofenceRepository.refreshGeofences()
+
+                activeRepository = apiRepository
+                activeGeofenceRepository = apiGeofenceRepository
+                
+                simulationEngine = UwbSimulationEngine(activeRepository, viewModelScope)
+                
+                startCollectingRepository(activeRepository)
+                startCollectingGeofenceRepository(activeGeofenceRepository)
+                startCollectingSimulation(simulationEngine)
+
+                dataSourceModeFlow.value = DataSourceMode.API_MONGODB
+                lastPositionLogAtMillis = System.currentTimeMillis() // Reset timer on switch
+                remoteStatusMessageFlow.value = "MongoDB API connected. Devices: ${apiRepository.getCurrentDevices().size}"
+                clearTrails()
+                refreshSelectedRouteIfPossible()
+                syncSimulationToSpeed()
+            } catch (e: Exception) {
+                remoteStatusMessageFlow.value = "MongoDB API failed: ${e.message ?: e::class.simpleName}"
+            } finally {
+                isRemoteLoadingFlow.value = false
+            }
+        }
+    }
+
     fun toggleDataSourceMode() {
-        if (dataSourceModeFlow.value == DataSourceMode.LOCAL) {
-            switchToSupabase()
-        } else {
-            switchToLocal()
+        when (dataSourceModeFlow.value) {
+            DataSourceMode.LOCAL -> switchToApiMongodb()
+            DataSourceMode.SUPABASE -> switchToApiMongodb()
+            DataSourceMode.API_MONGODB -> switchToLocal()
         }
     }
 
@@ -635,6 +679,10 @@ class MapViewModel : ViewModel() {
                     lastGeofenceEventStatusFlow.value = "Demo event evaluated ($eventsCreated events)"
                     
                     remoteStatusMessageFlow.value = "Demo event: Tag ${updatedDevice.name} moved $eventType Restricted Zone"
+                } else if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) {
+                    remoteStatusMessageFlow.value = "Demo event: Tag ${updatedDevice.name} position updated via MongoDB API"
+                    lastPositionLogStatusFlow.value = "Position updated via MongoDB API"
+                    lastGeofenceEventStatusFlow.value = "Geofence evaluated by backend"
                 } else {
                     remoteStatusMessageFlow.value = "Demo event: Tag ${updatedDevice.name} moved locally"
                 }
@@ -934,12 +982,14 @@ class MapViewModel : ViewModel() {
     private suspend fun refreshActiveRepositories() {
         when (val repo = activeRepository) {
             is SupabaseUwbRepository -> repo.refreshDevices()
+            is ApiUwbRepository -> repo.refreshDevices()
             is FakeUwbRepository -> Unit
             else -> Unit
         }
 
         when (val repo = activeGeofenceRepository) {
             is SupabaseGeofenceRepository -> repo.refreshGeofences()
+            is ApiGeofenceRepository -> repo.refreshGeofences()
             is FakeGeofenceRepository -> Unit
             else -> Unit
         }
@@ -955,7 +1005,17 @@ class MapViewModel : ViewModel() {
 
     /** Updates an existing device, or adds it if not found. */
     fun updateDevice(device: UwbDevice) {
-        viewModelScope.launch { activeRepository.updateDevice(device) }
+        viewModelScope.launch {
+            try {
+                activeRepository.updateDevice(device)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update device position: ${e.message}", e)
+                if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) {
+                    remoteStatusMessageFlow.value = "Update failed: ${e.message}"
+                    lastPositionLogStatusFlow.value = "Update failed: ${e.message}"
+                }
+            }
+        }
     }
 
     /** Deletes a device by its [deviceId]. */
@@ -1032,23 +1092,40 @@ class MapViewModel : ViewModel() {
     }
     // ── Routes API ───────────────────────────────────────────────────────
 
+    private fun shouldFallbackToSupabaseRoute(result: RouteResult): Boolean {
+        if (result.success) return false
+        val err = result.error ?: return false
+        val fallbackKeywords = listOf(
+            "GOOGLE_ROUTES_FORBIDDEN",
+            "403",
+            "forbidden",
+            "Backend is not running",
+            "connection failed",
+            "Route backend unavailable",
+            "500",
+            "502",
+            "503",
+            "504"
+        )
+        return fallbackKeywords.any { keyword -> err.contains(keyword, ignoreCase = true) }
+    }
+
     fun fetchRoute(origin: GeoPoint, destination: GeoPoint) {
-        viewModelScope.launch {
-            isRouteLoadingFlow.value = true
-            routeErrorFlow.value = null
-            
-            val originPoint = RoutePoint(origin.latitude, origin.longitude)
-            val destinationPoint = RoutePoint(destination.latitude, destination.longitude)
-            
-            val result = googleRoutesRepository.computeRoute(originPoint, destinationPoint, "WALK")
-            
-            if (result.success) {
-                routeToSelectedTagFlow.value = result
-            } else {
-                routeErrorFlow.value = result.error
-                routeToSelectedTagFlow.value = null
-            }
-            isRouteLoadingFlow.value = false
+        // No-op: Route feature is disabled to avoid Google Routes 403 errors.
+        routeErrorFlow.value = null
+        routeToSelectedTagFlow.value = null
+    }
+
+    private fun resolveGoogleRoutesRepository(): GoogleRoutesRepository {
+        return when (dataSourceModeFlow.value) {
+            DataSourceMode.API_MONGODB -> apiGoogleRoutesRepository
+            DataSourceMode.LOCAL, DataSourceMode.SUPABASE -> supabaseGoogleRoutesRepository
         }
+    }
+
+    private fun refreshSelectedRouteIfPossible() {
+        val tagId = selectedTagIdFlow.value ?: return
+        val tag = devicesBridgeFlow.value.find { it.id == tagId && it.isTag } ?: return
+        fetchRoute(phonePositionFlow.value, tag.position)
     }
 }

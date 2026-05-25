@@ -51,9 +51,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.virtualuwb.data.repository.SupabaseGeofenceEventRepository
 import com.example.virtualuwb.data.repository.SupabaseRealtimeEventRepository
+import com.example.virtualuwb.data.repository.ApiGeofenceEventRepository
+import com.example.virtualuwb.data.repository.ApiGeofenceEventStreamRepository
 import com.example.virtualuwb.domain.model.GeofenceEvent
 import com.example.virtualuwb.domain.model.GeofenceEventType
 import com.example.virtualuwb.domain.model.GeofenceType
+import com.example.virtualuwb.domain.model.DataSourceMode
+import com.example.virtualuwb.domain.repository.GeofenceEventRepository
+import com.example.virtualuwb.presentation.viewmodel.MapUiState
 import kotlinx.coroutines.launch
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -105,11 +110,19 @@ private fun formatEventTime(value: String?): String {
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun EventsScreen(
+    uiState: MapUiState,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    val repo = remember { SupabaseGeofenceEventRepository() }
+    val repo: GeofenceEventRepository = remember(uiState.dataSourceMode) {
+        if (uiState.dataSourceMode == DataSourceMode.API_MONGODB) {
+            ApiGeofenceEventRepository()
+        } else {
+            SupabaseGeofenceEventRepository()
+        }
+    }
     val realtimeRepo = remember { SupabaseRealtimeEventRepository() }
+    val apiRealtimeRepo = remember { ApiGeofenceEventStreamRepository() }
     val pullToRefreshState = rememberPullToRefreshState()
 
     var events by remember { mutableStateOf<List<GeofenceEvent>>(emptyList()) }
@@ -133,24 +146,52 @@ fun EventsScreen(
         }
 
         try {
-            totalEventCount = repo.countEvents()
+            if (repo is SupabaseGeofenceEventRepository) {
+                totalEventCount = repo.countEvents()
+            } else {
+                totalEventCount = events.size
+            }
         } catch (_: Exception) {
             totalEventCount = null
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(repo) {
         fetchEvents()
     }
 
-    LaunchedEffect(Unit) {
-        try {
-            realtimeRepo.geofenceEventsInsertFlow().collect {
-                realtimeStatus = "Realtime: new event received"
-                fetchEvents()
+    LaunchedEffect(uiState.dataSourceMode) {
+        if (uiState.dataSourceMode == DataSourceMode.SUPABASE) {
+            try {
+                realtimeStatus = "Realtime: connecting..."
+                realtimeRepo.geofenceEventsInsertFlow().collect {
+                    realtimeStatus = "Realtime: new event received"
+                    fetchEvents()
+                }
+            } catch (e: Exception) {
+                realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
             }
-        } catch (e: Exception) {
-            realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
+        } else if (uiState.dataSourceMode == DataSourceMode.API_MONGODB) {
+            try {
+                realtimeStatus = "Realtime: connecting..."
+                apiRealtimeRepo.geofenceEventsFlow().collect { newEvent ->
+                    realtimeStatus = "Realtime: active"
+                    
+                    val isDuplicate = events.any { existing ->
+                        (existing.id != null && newEvent.id != null && existing.id == newEvent.id) ||
+                        (existing.deviceId == newEvent.deviceId && existing.createdAt == newEvent.createdAt && existing.eventType == newEvent.eventType)
+                    }
+                    
+                    if (!isDuplicate) {
+                        events = listOf(newEvent) + events
+                        totalEventCount = events.size
+                    }
+                }
+            } catch (e: Exception) {
+                realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
+            }
+        } else {
+            realtimeStatus = "Realtime disabled in this mode"
         }
     }
 

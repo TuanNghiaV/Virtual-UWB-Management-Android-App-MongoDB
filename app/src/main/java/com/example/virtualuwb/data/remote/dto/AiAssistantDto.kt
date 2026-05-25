@@ -29,7 +29,8 @@ data class RouteContextDto(
 @Serializable
 data class RouteStepContextDto(
     val instruction: String?,
-    val distanceMeters: Int?
+    val distanceMeters: Int?,
+    val duration: String? = null
 )
 
 @Serializable

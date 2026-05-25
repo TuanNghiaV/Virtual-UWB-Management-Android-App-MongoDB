@@ -4,8 +4,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.virtualuwb.data.remote.dto.*
+import com.example.virtualuwb.data.repository.ApiAiAssistantRepository
 import com.example.virtualuwb.data.repository.SupabaseAiAssistantRepository
 import com.example.virtualuwb.domain.model.AssistantMessage
+import com.example.virtualuwb.domain.model.DataSourceMode
 import com.example.virtualuwb.domain.model.GeofenceType
 import com.example.virtualuwb.domain.repository.AiAssistantRepository
 import com.example.virtualuwb.presentation.viewmodel.MapUiState
@@ -22,12 +24,14 @@ import java.util.*
  * Handles the conversation state and coordinates context building for the Gemini-powered backend.
  */
 class AssistantViewModel(
-    private val repository: AiAssistantRepository = SupabaseAiAssistantRepository()
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "AI_ASSISTANT"
     }
+
+    private val supabaseRepository: AiAssistantRepository = SupabaseAiAssistantRepository()
+    private val apiRepository: AiAssistantRepository = ApiAiAssistantRepository()
 
     private val _messages = MutableStateFlow<List<AssistantMessage>>(
         listOf(
@@ -72,8 +76,10 @@ class AssistantViewModel(
 
         viewModelScope.launch {
             val context = buildContext(uiState)
+            val selectedTagCode = uiState.selectedTag?.id
+            val repository = resolveRepository(uiState.dataSourceMode)
             Log.d(TAG, "sendMessage compactContext=${compactContextLog(context)}")
-            val result = repository.askAssistant(question, context)
+            val result = repository.askAssistant(question, context, selectedTagCode)
             
             _isLoading.value = false
             
@@ -89,7 +95,8 @@ class AssistantViewModel(
                 Log.e(TAG, "sendMessage failed: ${it.message}", it)
                 val errorMessage = AssistantMessage(
                     id = UUID.randomUUID().toString(),
-                    text = "AI Assistant is temporarily unavailable. Please try again.",
+                    text = it.message?.takeIf { message -> message.isNotBlank() }
+                        ?: "AI Assistant is temporarily unavailable. Please try again.",
                     isUser = false
                 )
                 _messages.value = _messages.value + errorMessage
@@ -174,7 +181,8 @@ class AssistantViewModel(
                 steps = route.steps.map { step ->
                     RouteStepContextDto(
                         instruction = step.instruction,
-                        distanceMeters = step.distanceMeters
+                        distanceMeters = step.distanceMeters,
+                        duration = step.duration
                     )
                 }
             )
@@ -308,5 +316,12 @@ class AssistantViewModel(
 
     private fun roundToOneDecimal(value: Double): Double {
         return round(value * 10.0) / 10.0
+    }
+
+    private fun resolveRepository(mode: DataSourceMode): AiAssistantRepository {
+        return when (mode) {
+            DataSourceMode.API_MONGODB -> apiRepository
+            DataSourceMode.LOCAL, DataSourceMode.SUPABASE -> supabaseRepository
+        }
     }
 }

@@ -41,6 +41,11 @@ android {
             "SUPABASE_ANON_KEY",
             "\"${properties.getProperty("supabase.anon.key") ?: ""}\""
         )
+        buildConfigField(
+            "String",
+            "MONGODB_API_BASE_URL",
+            "\"${properties.getProperty("MONGODB_API_BASE_URL") ?: "http://10.0.2.2:3001"}\""
+        )
         
         manifestPlaceholders["MAPS_API_KEY"] = properties.getProperty("MAPS_API_KEY") ?: ""
     }
@@ -107,7 +112,10 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:realtime-kt:3.1.4")
     implementation("io.github.jan-tennert.supabase:auth-kt:3.1.4")
     implementation("io.github.jan-tennert.supabase:functions-kt:3.1.4")
+    implementation("io.ktor:ktor-client-core:3.0.3")
     implementation("io.ktor:ktor-client-cio:3.0.3")
+    implementation("io.ktor:ktor-client-content-negotiation:3.0.3")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Google Maps Compose

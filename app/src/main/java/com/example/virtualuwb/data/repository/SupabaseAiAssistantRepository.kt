@@ -27,7 +27,8 @@ class SupabaseAiAssistantRepository : AiAssistantRepository {
 
     override suspend fun askAssistant(
         question: String,
-        context: AiAssistantContextDto
+        context: AiAssistantContextDto,
+        selectedTagCode: String?
     ): Result<String> = try {
         val request = AiAssistantRequestDto(question, context)
         val requestJson = Json.encodeToString(request)

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -162,7 +163,7 @@ fun AppNavHost(
                 )
             }
             composable(AppDestination.Events.route) {
-                EventsScreen()
+                EventsScreen(uiState = uiState)
             }
             composable(AppDestination.FindMy.route) {
                 FindMyScreen(
@@ -313,6 +314,8 @@ private fun FloatingAppBottomBar(navController: NavHostController) {
                         navigateTo(AppDestination.Debug.route)
                     }
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -383,6 +386,7 @@ private fun MoreActionItem(
     onClick: () -> Unit
 ) {
     Surface(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         color = Color.White,
         tonalElevation = 0.dp,
@@ -418,7 +422,9 @@ private fun MoreActionItem(
                 }
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            modifier = Modifier.clickable(onClick = onClick)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
         )
     }
 }

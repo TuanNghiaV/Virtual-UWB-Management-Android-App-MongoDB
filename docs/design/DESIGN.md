@@ -221,11 +221,10 @@ Rules:
 
 Use status pills for:
 
-- Supabase Live
-- Realtime Live
+- MongoDB API Live
 - Connected
 - Local
-- Supabase
+- MongoDB API
 - Simulation Running
 - Logging Enabled
 - Restricted
@@ -308,7 +307,7 @@ Must include:
 
 - title: “Virtual UWB”
 - subtitle: “Realtime indoor positioning”
-- status pill: “Supabase Live” or current data source
+- status pill: “MongoDB API Live” or current data source
 - summary cards:
   - Anchors
   - Tags
@@ -546,17 +545,12 @@ Must include:
   - current mode
   - connection status
   - switch action
-- Supabase card:
+- Backend API card:
   - connection test
   - devices fetched
-- Realtime card:
+- Realtime card (SSE):
   - status
-  - subscribed table
   - last update
-- Position Logging card:
-  - enabled / disabled
-  - last logging status
-  - test action
 - Geofence Events card:
   - last event status
   - fetch recent events action
