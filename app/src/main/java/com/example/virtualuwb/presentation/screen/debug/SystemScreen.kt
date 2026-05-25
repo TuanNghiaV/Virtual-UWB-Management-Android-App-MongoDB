@@ -55,8 +55,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.virtualuwb.data.repository.SupabasePositionLogRepository
-import com.example.virtualuwb.data.repository.SupabaseUwbRepository
+
 import com.example.virtualuwb.domain.model.GeoPoint
 import com.example.virtualuwb.domain.model.UwbDevice
 import com.example.virtualuwb.domain.model.DataSourceMode
@@ -111,8 +110,8 @@ fun DebugScreen(
     val scrollState = rememberScrollState()
     
     // Local ephemeral states for testing
-    var isTestingSupabase by remember { mutableStateOf(false) }
-    var supabaseTestResult by remember { mutableStateOf<String?>(null) }
+    var isTestingBackend by remember { mutableStateOf(false) }
+    var backendTestResult by remember { mutableStateOf<String?>(null) }
     var isTestingPositionLog by remember { mutableStateOf(false) }
     var positionLogTestResult by remember { mutableStateOf<String?>(null) }
     var isFetchingEvents by remember { mutableStateOf(false) }
@@ -168,17 +167,14 @@ fun DebugScreen(
                 
                 StatusPill(
                     label = when (uiState.dataSourceMode) {
-                        DataSourceMode.SUPABASE -> "Supabase Mode (Legacy)"
                         DataSourceMode.API_MONGODB -> "MongoDB API Mode"
                         DataSourceMode.LOCAL -> "Local Mode"
                     },
                     color = when (uiState.dataSourceMode) {
-                        DataSourceMode.SUPABASE -> PrimaryIndigo
                         DataSourceMode.API_MONGODB -> SuccessGreen
                         DataSourceMode.LOCAL -> WarningOrange
                     },
                     icon = when (uiState.dataSourceMode) {
-                        DataSourceMode.SUPABASE -> Icons.Default.CloudDone
                         DataSourceMode.API_MONGODB -> Icons.Default.Cloud
                         DataSourceMode.LOCAL -> Icons.Default.CloudOff
                     }
@@ -262,7 +258,6 @@ fun DebugScreen(
             
             val nextModeLabel = when (uiState.dataSourceMode) {
                 DataSourceMode.LOCAL -> "Switch to MongoDB API"
-                DataSourceMode.SUPABASE -> "Switch to MongoDB API"
                 DataSourceMode.API_MONGODB -> "Switch to Local"
             }
             SystemButton(
@@ -280,32 +275,32 @@ fun DebugScreen(
             subtitle = "MongoDB backend API connection status"
         ) {
             DetailRow("Backend", "MongoDB Atlas API")
-            DetailRow("API Status", if (supabaseTestResult?.contains("Connected") == true) "Online" else "Idle")
+            DetailRow("API Status", if (backendTestResult?.contains("Connected") == true) "Online" else "Idle")
 
-            if (supabaseTestResult != null) {
-                StatusText(supabaseTestResult!!, isError = supabaseTestResult!!.contains("Failed"))
+            if (backendTestResult != null) {
+                StatusText(backendTestResult!!, isError = backendTestResult!!.contains("Failed"))
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             SystemButton(
-                text = if (isTestingSupabase) "Testing..." else "Test Connection",
+                text = if (isTestingBackend) "Testing..." else "Test Connection",
                 onClick = {
                     scope.launch {
-                        isTestingSupabase = true
-                        supabaseTestResult = null
+                        isTestingBackend = true
+                        backendTestResult = null
                         try {
                             val apiRepo = com.example.virtualuwb.data.repository.ApiUwbRepository()
                             apiRepo.refreshDevices()
                             val count = apiRepo.getCurrentDevices().size
-                            supabaseTestResult = "Connected (MongoDB). Devices fetched: $count"
+                            backendTestResult = "Connected (MongoDB). Devices fetched: $count"
                         } catch (e: Exception) {
-                            supabaseTestResult = "Failed (MongoDB): ${e.message ?: e::class.simpleName}"
+                            backendTestResult = "Failed (MongoDB): ${e.message ?: e::class.simpleName}"
                         }
-                        isTestingSupabase = false
+                        isTestingBackend = false
                     }
                 },
-                enabled = !isTestingSupabase
+                enabled = !isTestingBackend
             )
         }
 

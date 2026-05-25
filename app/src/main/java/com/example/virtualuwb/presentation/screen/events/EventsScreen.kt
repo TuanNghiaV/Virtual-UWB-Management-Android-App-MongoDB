@@ -49,8 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.virtualuwb.data.repository.SupabaseGeofenceEventRepository
-import com.example.virtualuwb.data.repository.SupabaseRealtimeEventRepository
+
 import com.example.virtualuwb.data.repository.ApiGeofenceEventRepository
 import com.example.virtualuwb.data.repository.ApiGeofenceEventStreamRepository
 import com.example.virtualuwb.domain.model.GeofenceEvent
@@ -114,14 +113,7 @@ fun EventsScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    val repo: GeofenceEventRepository = remember(uiState.dataSourceMode) {
-        if (uiState.dataSourceMode == DataSourceMode.API_MONGODB) {
-            ApiGeofenceEventRepository()
-        } else {
-            SupabaseGeofenceEventRepository()
-        }
-    }
-    val realtimeRepo = remember { SupabaseRealtimeEventRepository() }
+    val repo: GeofenceEventRepository = remember { ApiGeofenceEventRepository() }
     val apiRealtimeRepo = remember { ApiGeofenceEventStreamRepository() }
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -146,11 +138,7 @@ fun EventsScreen(
         }
 
         try {
-            if (repo is SupabaseGeofenceEventRepository) {
-                totalEventCount = repo.countEvents()
-            } else {
-                totalEventCount = events.size
-            }
+            totalEventCount = events.size
         } catch (_: Exception) {
             totalEventCount = null
         }
@@ -161,37 +149,23 @@ fun EventsScreen(
     }
 
     LaunchedEffect(uiState.dataSourceMode) {
-        if (uiState.dataSourceMode == DataSourceMode.SUPABASE) {
-            try {
-                realtimeStatus = "Realtime: connecting..."
-                realtimeRepo.geofenceEventsInsertFlow().collect {
-                    realtimeStatus = "Realtime: new event received"
-                    fetchEvents()
+        try {
+            realtimeStatus = "Realtime: connecting..."
+            apiRealtimeRepo.geofenceEventsFlow().collect { newEvent ->
+                realtimeStatus = "Realtime: active"
+                
+                val isDuplicate = events.any { existing ->
+                    (existing.id != null && newEvent.id != null && existing.id == newEvent.id) ||
+                    (existing.deviceId == newEvent.deviceId && existing.createdAt == newEvent.createdAt && existing.eventType == newEvent.eventType)
                 }
-            } catch (e: Exception) {
-                realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
-            }
-        } else if (uiState.dataSourceMode == DataSourceMode.API_MONGODB) {
-            try {
-                realtimeStatus = "Realtime: connecting..."
-                apiRealtimeRepo.geofenceEventsFlow().collect { newEvent ->
-                    realtimeStatus = "Realtime: active"
-                    
-                    val isDuplicate = events.any { existing ->
-                        (existing.id != null && newEvent.id != null && existing.id == newEvent.id) ||
-                        (existing.deviceId == newEvent.deviceId && existing.createdAt == newEvent.createdAt && existing.eventType == newEvent.eventType)
-                    }
-                    
-                    if (!isDuplicate) {
-                        events = listOf(newEvent) + events
-                        totalEventCount = events.size
-                    }
+                
+                if (!isDuplicate) {
+                    events = listOf(newEvent) + events
+                    totalEventCount = events.size
                 }
-            } catch (e: Exception) {
-                realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
             }
-        } else {
-            realtimeStatus = "Realtime disabled in this mode"
+        } catch (e: Exception) {
+            realtimeStatus = "Realtime failed: ${e.message ?: e::class.simpleName}"
         }
     }
 

@@ -26,21 +26,7 @@ android {
             properties.load(localPropertiesFile.inputStream())
         }
 
-        buildConfigField(
-            "String",
-            "SUPABASE_URL",
-            "\"${properties.getProperty("supabase.url") ?: ""}\""
-        )
-        buildConfigField(
-            "String",
-            "SUPABASE_PUBLISHABLE_KEY",
-            "\"${properties.getProperty("supabase.publishable.key") ?: ""}\""
-        )
-        buildConfigField(
-            "String",
-            "SUPABASE_ANON_KEY",
-            "\"${properties.getProperty("supabase.anon.key") ?: ""}\""
-        )
+
         buildConfigField(
             "String",
             "MONGODB_API_BASE_URL",
@@ -107,11 +93,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("androidx.navigation:navigation-compose:2.8.5")
 
-    // Supabase & Ktor & Serialization
-    implementation("io.github.jan-tennert.supabase:postgrest-kt:3.1.4")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:3.1.4")
-    implementation("io.github.jan-tennert.supabase:auth-kt:3.1.4")
-    implementation("io.github.jan-tennert.supabase:functions-kt:3.1.4")
+    // Serialization (used by Api* repositories)
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("io.ktor:ktor-client-core:3.0.3")
     implementation("io.ktor:ktor-client-cio:3.0.3")
     implementation("io.ktor:ktor-client-content-negotiation:3.0.3")

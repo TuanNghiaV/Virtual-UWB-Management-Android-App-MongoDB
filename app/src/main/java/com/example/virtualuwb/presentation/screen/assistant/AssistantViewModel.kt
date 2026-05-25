@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.virtualuwb.data.remote.dto.*
 import com.example.virtualuwb.data.repository.ApiAiAssistantRepository
-import com.example.virtualuwb.data.repository.SupabaseAiAssistantRepository
+
 import com.example.virtualuwb.domain.model.AssistantMessage
 import com.example.virtualuwb.domain.model.DataSourceMode
 import com.example.virtualuwb.domain.model.GeofenceType
@@ -30,7 +30,6 @@ class AssistantViewModel(
         private const val TAG = "AI_ASSISTANT"
     }
 
-    private val supabaseRepository: AiAssistantRepository = SupabaseAiAssistantRepository()
     private val apiRepository: AiAssistantRepository = ApiAiAssistantRepository()
 
     private val _messages = MutableStateFlow<List<AssistantMessage>>(
@@ -319,9 +318,7 @@ class AssistantViewModel(
     }
 
     private fun resolveRepository(mode: DataSourceMode): AiAssistantRepository {
-        return when (mode) {
-            DataSourceMode.API_MONGODB -> apiRepository
-            DataSourceMode.LOCAL, DataSourceMode.SUPABASE -> supabaseRepository
-        }
+        // Always use MongoDB API repository.
+        return apiRepository
     }
 }

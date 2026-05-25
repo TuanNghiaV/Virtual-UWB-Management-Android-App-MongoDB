@@ -5,11 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.example.virtualuwb.data.repository.FakeGeofenceRepository
 import com.example.virtualuwb.data.repository.FakeUwbRepository
-import com.example.virtualuwb.data.repository.SupabaseGeofenceEventRepository
-import com.example.virtualuwb.data.repository.SupabaseGeofenceRepository
-import com.example.virtualuwb.data.repository.SupabasePositionLogRepository
-import com.example.virtualuwb.data.repository.SupabaseUwbRepository
-import com.example.virtualuwb.data.repository.SupabaseGoogleRoutesRepository
+
 import com.example.virtualuwb.data.repository.ApiGoogleRoutesRepository
 import com.example.virtualuwb.data.repository.ApiUwbRepository
 import com.example.virtualuwb.data.repository.ApiGeofenceRepository
@@ -46,14 +42,10 @@ import kotlin.random.Random
 class MapViewModel : ViewModel() {
 
     private val localRepository = FakeUwbRepository()
-    private val remoteRepository = SupabaseUwbRepository()
     private val apiRepository = ApiUwbRepository()
 
     private val localGeofenceRepository = FakeGeofenceRepository()
-    private val remoteGeofenceRepository = SupabaseGeofenceRepository()
     private val apiGeofenceRepository = ApiGeofenceRepository()
-    private val positionLogRepository = SupabasePositionLogRepository()
-    private val geofenceEventRepository = SupabaseGeofenceEventRepository()
 
     private var activeRepository: UwbRepository = apiRepository
     private var activeGeofenceRepository: GeofenceRepository = apiGeofenceRepository
@@ -73,7 +65,7 @@ class MapViewModel : ViewModel() {
     private val routeToSelectedTagFlow = MutableStateFlow<RouteResult?>(null)
     private val isRouteLoadingFlow = MutableStateFlow(false)
     private val routeErrorFlow = MutableStateFlow<String?>(null)
-    private val supabaseGoogleRoutesRepository = SupabaseGoogleRoutesRepository()
+
     private val apiGoogleRoutesRepository = ApiGoogleRoutesRepository()
     
     private val devicesBridgeFlow = MutableStateFlow<List<UwbDevice>>(localRepository.getCurrentDevices())
@@ -152,43 +144,7 @@ class MapViewModel : ViewModel() {
     }
 
     private suspend fun logTagPositionsIfNeeded(devices: List<UwbDevice>) {
-        if (dataSourceModeFlow.value != DataSourceMode.SUPABASE) return
-        if (!isPositionLoggingEnabledFlow.value) return
-
-        val now = System.currentTimeMillis()
-        if (now - lastPositionLogAtMillis < POSITION_LOG_INTERVAL_MILLIS) return
-
-        val tags = devices.filter { it.isTag }
-        if (tags.isEmpty()) return
-
-        try {
-            // Log positions
-            tags.forEach { tag ->
-                positionLogRepository.insertDevicePosition(
-                    deviceId = tag.id,
-                    position = tag.position,
-                    source = "SIMULATION"
-                )
-            }
-            
-            // Evaluate geofence events
-            val totalEvents = tags.sumOf { tag ->
-                geofenceEventRepository.evaluateForDevice(tag.id)
-            }
-
-            lastPositionLogAtMillis = now
-            lastPositionLogStatusFlow.value = "Logged ${tags.size} tag positions"
-            lastGeofenceEventStatusFlow.value = if (totalEvents > 0) {
-                "Created $totalEvents geofence events"
-            } else {
-                "No new geofence events"
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            val errorMsg = "Position log/event failed: ${e.message ?: e::class.simpleName}"
-            lastPositionLogStatusFlow.value = errorMsg
-            lastGeofenceEventStatusFlow.value = errorMsg
-        }
+        // Position logging is only active in Supabase mode (removed). No-op.
     }
 
     private fun startCollectingRepository(repository: UwbRepository) {
@@ -401,40 +357,7 @@ class MapViewModel : ViewModel() {
         syncSimulationToSpeed()
     }
 
-    fun switchToSupabase() {
-        if (dataSourceModeFlow.value == DataSourceMode.SUPABASE) return
 
-        viewModelScope.launch {
-            isRemoteLoadingFlow.value = true
-            remoteStatusMessageFlow.value = "Connecting to Supabase..."
-            simulationEngine.stop()
-
-            try {
-                remoteRepository.refreshDevices()
-                remoteGeofenceRepository.refreshGeofences()
-
-                activeRepository = remoteRepository
-                activeGeofenceRepository = remoteGeofenceRepository
-                
-                simulationEngine = UwbSimulationEngine(activeRepository, viewModelScope)
-                
-                startCollectingRepository(activeRepository)
-                startCollectingGeofenceRepository(activeGeofenceRepository)
-                startCollectingSimulation(simulationEngine)
-
-                dataSourceModeFlow.value = DataSourceMode.SUPABASE
-                lastPositionLogAtMillis = System.currentTimeMillis() // Reset timer on switch
-                remoteStatusMessageFlow.value = "Supabase connected. Devices: ${remoteRepository.getCurrentDevices().size}"
-                clearTrails()
-                refreshSelectedRouteIfPossible()
-                syncSimulationToSpeed()
-            } catch (e: Exception) {
-                remoteStatusMessageFlow.value = "Supabase failed: ${e.message ?: e::class.simpleName}"
-            } finally {
-                isRemoteLoadingFlow.value = false
-            }
-        }
-    }
 
     fun switchToApiMongodb() {
         if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) return
@@ -474,7 +397,6 @@ class MapViewModel : ViewModel() {
     fun toggleDataSourceMode() {
         when (dataSourceModeFlow.value) {
             DataSourceMode.LOCAL -> switchToApiMongodb()
-            DataSourceMode.SUPABASE -> switchToApiMongodb()
             DataSourceMode.API_MONGODB -> switchToLocal()
         }
     }
@@ -527,94 +449,12 @@ class MapViewModel : ViewModel() {
     /** Stops the simulation and resets all devices to defaults. */
     fun resetSimulation() {
         viewModelScope.launch {
-            if (dataSourceModeFlow.value == DataSourceMode.SUPABASE) {
-                resetSupabaseDemoPositions()
-            } else {
-                simulationEngine.reset()
-                tagTrailsFlow.value = emptyMap()
-                syncSimulationToSpeed()
-            }
-        }
-    }
-
-    private suspend fun resetSupabaseDemoPositions() {
-        simulationEngine.stop()
-
-        val devices = activeRepository.getCurrentDevices()
-        val tags = devices.filter { it.isTag }
-
-        if (tags.isEmpty()) {
-            remoteStatusMessageFlow.value = "Demo reset skipped: no tags found"
-            return
-        }
-
-        val restrictedTag = tags.firstOrNull { it.id == "tag-t1" } ?: tags.getOrNull(0)
-        val safeTag = tags.firstOrNull { it.id == "tag-t2" } ?: tags.getOrNull(1)
-
-        val restrictedPoint = GeoPoint(latitude = 21.036650, longitude = 105.834900)
-        val safePoint = GeoPoint(latitude = 21.036850, longitude = 105.834650)
-
-        try {
-            var didLog = false
-            var totalEvents = 0
-
-            restrictedTag?.let { tag ->
-                val updated = tag.withPosition(restrictedPoint)
-                activeRepository.updateDevice(updated)
-                if (isPositionLoggingEnabledFlow.value) {
-                    positionLogRepository.insertDevicePosition(
-                        deviceId = updated.id,
-                        position = updated.position,
-                        source = "DEMO_RESET"
-                    )
-                    totalEvents += geofenceEventRepository.evaluateForDevice(updated.id)
-                    didLog = true
-                }
-            }
-
-            safeTag?.takeIf { it.id != restrictedTag?.id }?.let { tag ->
-                val updated = tag.withPosition(safePoint)
-                activeRepository.updateDevice(updated)
-                if (isPositionLoggingEnabledFlow.value) {
-                    positionLogRepository.insertDevicePosition(
-                        deviceId = updated.id,
-                        position = updated.position,
-                        source = "DEMO_RESET"
-                    )
-                    totalEvents += geofenceEventRepository.evaluateForDevice(updated.id)
-                    didLog = true
-                }
-            }
-
+            simulationEngine.reset()
             tagTrailsFlow.value = emptyMap()
-            lastPositionLogAtMillis = System.currentTimeMillis()
-            remoteStatusMessageFlow.value = "Demo reset: tags moved into Safe/Restricted zones"
-
-            if (isPositionLoggingEnabledFlow.value) {
-                lastPositionLogStatusFlow.value = if (didLog) {
-                    "Demo reset positions logged"
-                } else {
-                    "Demo reset: no tags to log"
-                }
-                lastGeofenceEventStatusFlow.value = if (didLog) {
-                    "Demo reset evaluated geofence events ($totalEvents)"
-                } else {
-                    "Demo reset: no tags to evaluate"
-                }
-            } else {
-                lastPositionLogStatusFlow.value = "Demo reset: logging disabled"
-                lastGeofenceEventStatusFlow.value = "Demo reset: logging disabled"
-            }
-
             syncSimulationToSpeed()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            val errorMsg = "Demo reset failed: ${e.message ?: e::class.simpleName}"
-            remoteStatusMessageFlow.value = errorMsg
-            lastPositionLogStatusFlow.value = errorMsg
-            lastGeofenceEventStatusFlow.value = errorMsg
         }
     }
+
 
     /**
      * Instantly moves Tag T1 (or first tag) inside or outside the restricted zone
@@ -663,23 +503,7 @@ class MapViewModel : ViewModel() {
                 currentTrails[updatedDevice.id] = (oldTrail + updatedDevice.position).takeLast(MAX_TRAIL_POINTS)
                 tagTrailsFlow.value = currentTrails
 
-                if (dataSourceModeFlow.value == DataSourceMode.SUPABASE) {
-                    // Position logging
-                    if (isPositionLoggingEnabledFlow.value) {
-                        positionLogRepository.insertDevicePosition(
-                            deviceId = updatedDevice.id,
-                            position = updatedDevice.position,
-                            source = "DEMO_EVENT"
-                        )
-                        lastPositionLogStatusFlow.value = "Demo event position logged"
-                    }
-                    
-                    // Force geofence evaluation
-                    val eventsCreated = geofenceEventRepository.evaluateForDevice(updatedDevice.id)
-                    lastGeofenceEventStatusFlow.value = "Demo event evaluated ($eventsCreated events)"
-                    
-                    remoteStatusMessageFlow.value = "Demo event: Tag ${updatedDevice.name} moved $eventType Restricted Zone"
-                } else if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) {
+                if (dataSourceModeFlow.value == DataSourceMode.API_MONGODB) {
                     remoteStatusMessageFlow.value = "Demo event: Tag ${updatedDevice.name} position updated via MongoDB API"
                     lastPositionLogStatusFlow.value = "Position updated via MongoDB API"
                     lastGeofenceEventStatusFlow.value = "Geofence evaluated by backend"
@@ -942,21 +766,7 @@ class MapViewModel : ViewModel() {
     }
 
     private suspend fun evaluateMovedTags(tags: List<UwbDevice>) {
-        if (dataSourceModeFlow.value != DataSourceMode.SUPABASE) return
-
-        try {
-            val totalEvents = tags.sumOf { tag -> geofenceEventRepository.evaluateForDevice(tag.id) }
-            lastGeofenceEventStatusFlow.value = if (totalEvents > 0) {
-                "Evaluated $totalEvents geofence events"
-            } else {
-                "No new geofence events"
-            }
-            Log.d(TAG, lastGeofenceEventStatusFlow.value.orEmpty())
-        } catch (e: Exception) {
-            val errorMsg = "Geofence evaluation failed: ${e.message ?: e::class.simpleName}"
-            lastGeofenceEventStatusFlow.value = errorMsg
-            Log.d(TAG, errorMsg)
-        }
+        // Geofence evaluation via Supabase removed. Backend handles evaluation.
     }
 
     private fun randomPointInsideGeofence(geofence: Geofence): GeoPoint {
@@ -981,14 +791,12 @@ class MapViewModel : ViewModel() {
 
     private suspend fun refreshActiveRepositories() {
         when (val repo = activeRepository) {
-            is SupabaseUwbRepository -> repo.refreshDevices()
             is ApiUwbRepository -> repo.refreshDevices()
             is FakeUwbRepository -> Unit
             else -> Unit
         }
 
         when (val repo = activeGeofenceRepository) {
-            is SupabaseGeofenceRepository -> repo.refreshGeofences()
             is ApiGeofenceRepository -> repo.refreshGeofences()
             is FakeGeofenceRepository -> Unit
             else -> Unit
@@ -1092,23 +900,6 @@ class MapViewModel : ViewModel() {
     }
     // ── Routes API ───────────────────────────────────────────────────────
 
-    private fun shouldFallbackToSupabaseRoute(result: RouteResult): Boolean {
-        if (result.success) return false
-        val err = result.error ?: return false
-        val fallbackKeywords = listOf(
-            "GOOGLE_ROUTES_FORBIDDEN",
-            "403",
-            "forbidden",
-            "Backend is not running",
-            "connection failed",
-            "Route backend unavailable",
-            "500",
-            "502",
-            "503",
-            "504"
-        )
-        return fallbackKeywords.any { keyword -> err.contains(keyword, ignoreCase = true) }
-    }
 
     fun fetchRoute(origin: GeoPoint, destination: GeoPoint) {
         // No-op: Route feature is disabled to avoid Google Routes 403 errors.
@@ -1117,10 +908,8 @@ class MapViewModel : ViewModel() {
     }
 
     private fun resolveGoogleRoutesRepository(): GoogleRoutesRepository {
-        return when (dataSourceModeFlow.value) {
-            DataSourceMode.API_MONGODB -> apiGoogleRoutesRepository
-            DataSourceMode.LOCAL, DataSourceMode.SUPABASE -> supabaseGoogleRoutesRepository
-        }
+        // Always use the API repository; Supabase route repository removed.
+        return apiGoogleRoutesRepository
     }
 
     private fun refreshSelectedRouteIfPossible() {
