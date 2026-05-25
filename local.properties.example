@@ -13,5 +13,5 @@ supabase.anon.key=your_supabase_anon_key
 MAPS_API_KEY=your_google_maps_android_api_key
 
 # MongoDB API Backend Base URL configuration
-MONGODB_API_BASE_URL=http://10.0.2.2:3001
+MONGODB_API_BASE_URL=https://your-backend-url.example.com
 

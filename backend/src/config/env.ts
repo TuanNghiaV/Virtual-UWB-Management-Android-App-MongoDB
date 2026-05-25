@@ -5,12 +5,11 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   MONGODB_URI: z.string({
     required_error: 'MONGODB_URI environmental variable is required but missing.',
   }),
-  CORS_ORIGIN: z.string().default('*'),
   // Optional — backend starts without this key, but /api/routes/google returns 500
   // until a valid key is provided. Do NOT make this required to avoid breaking dev startup.
   GOOGLE_ROUTES_API_KEY: z.string().optional(),
@@ -32,7 +31,7 @@ const parseEnv = () => {
   // Safe diagnostics for GOOGLE_ROUTES_API_KEY
   const key = result.data.GOOGLE_ROUTES_API_KEY;
   if (key) {
-    console.log(`GOOGLE_ROUTES_API_KEY configured: true, length: ${key.length}, format: ${key.slice(0, 4)}...${key.slice(-4)}`);
+    console.log('GOOGLE_ROUTES_API_KEY configured: true');
   } else {
     console.log('GOOGLE_ROUTES_API_KEY configured: false');
   }

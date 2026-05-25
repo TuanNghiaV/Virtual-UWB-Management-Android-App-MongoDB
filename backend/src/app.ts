@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { env } from './config/env.js';
 import healthRoutes from './routes/health.routes.js';
 import deviceRoutes from './routes/device.routes.js';
 import geofenceRoutes from './routes/geofence.routes.js';
@@ -10,11 +9,8 @@ import aiAssistantRoutes from './routes/aiAssistant.routes.js';
 
 const app = express();
 
-// Configure CORS
-app.use(cors({
-  origin: env.CORS_ORIGIN,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-}));
+// Allow native clients and simple deploy previews without origin filtering.
+app.use(cors());
 
 // Parsers
 app.use(express.json());

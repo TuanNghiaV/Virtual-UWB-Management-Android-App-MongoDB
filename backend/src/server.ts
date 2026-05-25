@@ -7,8 +7,10 @@ const startServer = async () => {
   await connectDatabase();
 
   // 2. Start Listening
-  app.listen(env.PORT, () => {
-    console.log(`Server is running in ${env.NODE_ENV} mode on port ${env.PORT}`);
+  const port = process.env.PORT ? Number(process.env.PORT) : env.PORT;
+
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Server is running in ${env.NODE_ENV} mode on port ${port}`);
   });
 };
 
