@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import com.example.virtualuwb.BuildConfig
 import com.example.virtualuwb.domain.model.GeoPoint
 import com.example.virtualuwb.domain.model.UwbDevice
 import com.example.virtualuwb.domain.model.DataSourceMode
@@ -289,13 +290,14 @@ fun DebugScreen(
                     scope.launch {
                         isTestingBackend = true
                         backendTestResult = null
+                        val backendBaseUrl = BuildConfig.MONGODB_API_BASE_URL
                         try {
                             val apiRepo = com.example.virtualuwb.data.repository.ApiUwbRepository()
                             apiRepo.refreshDevices()
                             val count = apiRepo.getCurrentDevices().size
                             backendTestResult = "Connected (MongoDB). Devices fetched: $count"
                         } catch (e: Exception) {
-                            backendTestResult = "Failed (MongoDB): ${e.message ?: e::class.simpleName}"
+                            backendTestResult = "Backend unreachable at $backendBaseUrl. Make sure Node.js backend is running. ${e.message ?: e::class.simpleName}"
                         }
                         isTestingBackend = false
                     }
