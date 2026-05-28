@@ -46,12 +46,23 @@ fun AssistantScreen(
 
     val listState = rememberLazyListState()
 
-    val suggestions = listOf(
-        "Where is Tag T1?",
-        "Guide me to Tag T1",
-        "Is Tag T2 safe?",
-        "Any tags in danger?"
-    )
+    val targetTag = uiState.selectedTag ?: uiState.tags.firstOrNull()
+    val suggestions = if (targetTag != null) {
+        val tagName = targetTag.name
+        listOf(
+            "Where is $tagName?",
+            "Guide me to $tagName",
+            "Is $tagName safe?",
+            "Any tags in danger?"
+        )
+    } else {
+        listOf(
+            "Show system status",
+            "Any tags in danger?",
+            "Show recent events",
+            "What can you track?"
+        )
+    }
 
     val introMessage = messages.firstOrNull()?.takeIf { !it.isUser }
     val conversationMessages = if (introMessage != null) messages.drop(1) else messages
@@ -86,7 +97,7 @@ fun AssistantScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Ask about tag location, safety zones, or directions",
+                text = "Ask about tags, zones, guidance, or recent events",
                 style = MaterialTheme.typography.bodyMedium,
                 color = SubtitleColor
             )

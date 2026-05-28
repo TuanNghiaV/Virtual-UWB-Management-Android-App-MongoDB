@@ -36,7 +36,7 @@ class AssistantViewModel(
         listOf(
             AssistantMessage(
                 id = UUID.randomUUID().toString(),
-                text = "Hi, I can help you find tags, check safety zones, and guide you through the indoor map.",
+                text = "Hi, I can locate tags, check safety status, and guide you directly to them.",
                 isUser = false
             )
         )

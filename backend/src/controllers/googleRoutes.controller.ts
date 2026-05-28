@@ -73,13 +73,7 @@ export const computeRoute = async (req: Request, res: Response): Promise<void> =
     // err is a structured IRouteError thrown by the service
     const routeError = err as IRouteError;
 
-    if (routeError.error === 'NO_ROUTE_FOUND') {
-      res.status(404).json(routeError);
-      return;
-    }
-
     if (routeError.error === 'GOOGLE_ROUTES_NOT_CONFIGURED') {
-      // Missing API key — config problem, not the client's fault
       res.status(500).json({
         error: 'SERVICE_CONFIGURATION_ERROR',
         message: 'Google Routes API is not configured on the backend. Contact the administrator.',
@@ -95,18 +89,28 @@ export const computeRoute = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Check if it's other Google API HTTP status errors
-    if (routeError.error && routeError.error.startsWith('GOOGLE_ROUTES_')) {
-      const match = routeError.message.match(/HTTP (\d+)/);
-      const httpStatus = match ? parseInt(match[1], 10) : 502;
-      res.status(httpStatus === 400 ? 400 : httpStatus === 429 ? 429 : 502).json({
-        error: 'GOOGLE_ROUTES_ERROR',
-        message: `Google Routes API returned HTTP ${httpStatus}.`,
+    if (routeError.error === 'GOOGLE_ROUTES_RATE_LIMITED') {
+      res.status(429).json({
+        error: 'GOOGLE_ROUTES_RATE_LIMITED',
+        message: 'Google Routes API returned HTTP 429.',
       });
       return;
     }
 
-    // All other upstream errors (timeout, network error, parse error, etc.)
+    if (routeError.error === 'NO_ROUTE_FOUND') {
+      res.status(404).json(routeError);
+      return;
+    }
+
+    if (routeError.error === 'GOOGLE_ROUTES_BAD_REQUEST') {
+      res.status(400).json({
+        error: 'INVALID_REQUEST',
+        message: 'Google Routes API returned HTTP 400.',
+      });
+      return;
+    }
+
+    // All other upstream errors (timeout, network error, parse error, etc.) -> 502
     res.status(502).json({
       error: 'GOOGLE_ROUTES_ERROR',
       message: routeError.message ?? 'An error occurred while computing the route.',

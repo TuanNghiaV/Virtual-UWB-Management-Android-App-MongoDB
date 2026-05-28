@@ -297,14 +297,6 @@ class MapViewModel : ViewModel() {
         // Sync the backing flow when auto-selection kicks in
         if (validSelectedTagId != deviceState.selectedTagId) {
             selectedTagIdFlow.value = validSelectedTagId
-            
-            // Fetch route when auto-selection kicks in
-            if (validSelectedTagId != null) {
-                val tag = tags.find { it.id == validSelectedTagId }
-                if (tag != null) {
-                    fetchRoute(phoneState.phonePosition, tag.position)
-                }
-            }
         }
 
         MapUiState(
@@ -628,19 +620,8 @@ class MapViewModel : ViewModel() {
 
     fun updatePhonePositionFromGps(latitude: Double, longitude: Double) {
         val newPosition = GeoPoint(latitude, longitude)
-        val oldPosition = phonePositionFlow.value
         phonePositionFlow.value = newPosition
         isPhoneGpsLocationFlow.value = true
-        
-        if (GeoMath.haversineDistanceMeters(oldPosition, newPosition) > 10.0) {
-            val tagId = selectedTagIdFlow.value
-            if (tagId != null) {
-                val tag = devicesBridgeFlow.value.find { it.id == tagId && it.isTag }
-                if (tag != null) {
-                    fetchRoute(newPosition, tag.position)
-                }
-            }
-        }
     }
 
     /** Rotates the simulated phone heading 15° counter-clockwise. */
@@ -902,9 +883,42 @@ class MapViewModel : ViewModel() {
 
 
     fun fetchRoute(origin: GeoPoint, destination: GeoPoint) {
-        // No-op: Route feature is disabled to avoid Google Routes 403 errors.
-        routeErrorFlow.value = null
-        routeToSelectedTagFlow.value = null
+        viewModelScope.launch {
+            isRouteLoadingFlow.value = true
+            routeErrorFlow.value = null
+            routeToSelectedTagFlow.value = null
+            try {
+                val originPt = RoutePoint(origin.latitude, origin.longitude)
+                val destPt = RoutePoint(destination.latitude, destination.longitude)
+                val repo = resolveGoogleRoutesRepository()
+                val result = repo.computeRoute(originPt, destPt, "WALK")
+                if (result.success) {
+                    routeToSelectedTagFlow.value = result
+                } else {
+                    routeErrorFlow.value = result.error ?: "Failed to get route"
+                    routeToSelectedTagFlow.value = result
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchRoute failed: ${e.message}", e)
+                routeErrorFlow.value = e.message ?: "Unknown route error"
+                routeToSelectedTagFlow.value = RouteResult(
+                    success = false,
+                    error = e.message ?: "Unknown route error",
+                    source = "GOOGLE_ROUTES"
+                )
+            } finally {
+                isRouteLoadingFlow.value = false
+            }
+        }
+    }
+
+    fun fetchRouteForSelectedTag() {
+        val selectedTagId = selectedTagIdFlow.value
+        val tags = devicesBridgeFlow.value.filter { it.isTag }
+        val tag = selectedTagId?.let { id -> tags.find { it.id == id } } ?: tags.firstOrNull()
+        if (tag != null) {
+            fetchRoute(phonePositionFlow.value, tag.position)
+        }
     }
 
     private fun resolveGoogleRoutesRepository(): GoogleRoutesRepository {

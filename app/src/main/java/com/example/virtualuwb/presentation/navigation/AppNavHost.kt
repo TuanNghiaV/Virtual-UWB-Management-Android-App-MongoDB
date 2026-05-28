@@ -131,7 +131,8 @@ fun AppNavHost(
                     GoogleIndoorMapScreen(
                         uiState = uiState,
                         hasLocationPermission = hasLocationPermission,
-                        onSelectTagForNavigation = viewModel::selectTagForNavigation
+                        onSelectTagForNavigation = viewModel::selectTagForNavigation,
+                        onFetchRoute = viewModel::fetchRouteForSelectedTag
                     )
                 } else {
                     MapScreen(

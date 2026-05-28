@@ -75,7 +75,8 @@ fun GoogleIndoorMapScreen(
     uiState: MapUiState,
     hasLocationPermission: Boolean = false,
     modifier: Modifier = Modifier,
-    onSelectTagForNavigation: (String) -> Unit = {}
+    onSelectTagForNavigation: (String) -> Unit = {},
+    onFetchRoute: () -> Unit = {}
 ) {
     val hanoiLatLng = LatLng(21.036784, 105.834711)
     val cameraPositionState = rememberCameraPositionState {
@@ -235,6 +236,9 @@ fun GoogleIndoorMapScreen(
                 distanceMeters = distanceMeters,
                 directionLabel = directionLabel,
                 routeResult = uiState.routeToSelectedTag,
+                isRouteLoading = uiState.isRouteLoading,
+                routeError = uiState.routeError,
+                onFetchRouteClick = onFetchRoute,
                 onClick = { sheetVisible = true }
             )
 
@@ -269,6 +273,7 @@ fun GoogleIndoorMapScreen(
                     onSelectTagForNavigation(tagId)
                     selectedMapItem = null
                 },
+                onFetchRouteClick = onFetchRoute,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 16.dp)
@@ -306,6 +311,7 @@ private fun MapItemInfoCard(
     uiState: MapUiState,
     onClose: () -> Unit,
     onNavigateToTag: (String) -> Unit,
+    onFetchRouteClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -364,18 +370,19 @@ private fun MapItemInfoCard(
             }
             Text(text = roleText, style = MaterialTheme.typography.bodyMedium)
             
-            /*
             if (item is MapItemInfo.Tag) {
                 Button(
-                    onClick = { onNavigateToTag(item.device.id) },
+                    onClick = {
+                        onNavigateToTag(item.device.id)
+                        onFetchRouteClick()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
                 ) {
-                    Text("Chỉ đường")
+                    Text("Guide me")
                 }
             }
-            */
         }
     }
 }
@@ -386,6 +393,9 @@ private fun TargetTrackingCard(
     distanceMeters: Double?,
     directionLabel: String?,
     routeResult: com.example.virtualuwb.domain.model.RouteResult?,
+    isRouteLoading: Boolean,
+    routeError: String?,
+    onFetchRouteClick: () -> Unit,
     onClick: () -> Unit
 ) {
     val statusLabel = when {
@@ -397,6 +407,17 @@ private fun TargetTrackingCard(
 
     val subtitle = when {
         displayTag == null -> "Select target"
+        isRouteLoading -> "Calculating route..."
+        routeError != null -> {
+            val shortError = if (routeError.length > 25) routeError.take(22) + "..." else routeError
+            val directStr = distanceMeters?.let { String.format(java.util.Locale.US, "%.1f m", it) } ?: ""
+            "Route Err: $shortError • Direct: $directStr"
+        }
+        routeResult != null && routeResult.success -> {
+            val dist = routeResult.distanceMeters ?: 0
+            val dur = routeResult.duration ?: ""
+            "Route: $dist m · $dur (Google Routes)"
+        }
         distanceMeters != null && directionLabel != null ->
             String.format(java.util.Locale.US, "%.1f m · %s (Direct guidance)", distanceMeters, directionLabel)
         distanceMeters != null -> String.format(java.util.Locale.US, "%.1f m (Direct guidance)", distanceMeters)
@@ -427,8 +448,19 @@ private fun TargetTrackingCard(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                    color = if (routeError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                 )
+            }
+
+            if (displayTag != null) {
+                Button(
+                    onClick = onFetchRouteClick,
+                    enabled = !isRouteLoading,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Text(text = "Route", fontSize = 12.sp)
+                }
             }
 
             Surface(
