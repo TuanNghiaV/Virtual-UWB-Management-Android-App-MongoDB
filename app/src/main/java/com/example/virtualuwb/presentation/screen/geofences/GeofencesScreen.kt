@@ -99,7 +99,8 @@ fun GeofencesScreen(
                 onClick = { isAddDialogVisible = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color.White,
-                shape = CircleShape
+                shape = CircleShape,
+                modifier = Modifier.padding(bottom = 96.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add Geofence")
             }
@@ -108,7 +109,7 @@ fun GeofencesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = padding.calculateTopPadding())
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -169,7 +170,7 @@ fun GeofencesScreen(
                 }
             }
             
-            Spacer(modifier = Modifier.height(80.dp)) // Padding for FAB
+            Spacer(modifier = Modifier.height(136.dp)) // Padding for FAB
         }
     }
 

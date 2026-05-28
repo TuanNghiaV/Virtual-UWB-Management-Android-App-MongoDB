@@ -294,12 +294,11 @@ class MapViewModel : ViewModel() {
         val devices = deviceState.devices
         val tags = devices.filter { it.isTag }
 
-        // Auto-select: keep current selection if valid, otherwise pick the first tag
+        // Keep current selection if valid, otherwise do not auto-select any tag by default
         val validSelectedTagId = deviceState.selectedTagId
             ?.takeIf { id -> tags.any { it.id == id } }
-            ?: tags.firstOrNull()?.id
 
-        // Sync the backing flow when auto-selection kicks in
+        // Sync the backing flow when selection changes
         if (validSelectedTagId != deviceState.selectedTagId) {
             selectedTagIdFlow.value = validSelectedTagId
         }
@@ -609,7 +608,7 @@ class MapViewModel : ViewModel() {
     }
 
     /** Selects a tag for map navigation and tracking. */
-    fun selectTagForNavigation(tagId: String) {
+    fun selectTagForNavigation(tagId: String?) {
         selectTag(tagId)
     }
 

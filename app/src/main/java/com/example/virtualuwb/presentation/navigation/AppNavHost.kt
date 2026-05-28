@@ -90,7 +90,7 @@ fun AppNavHost(
         NavHost(
             navController = navController,
             startDestination = AppDestination.Map.route,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
         ) {
             composable(AppDestination.Map.route) {
                 val context = LocalContext.current

@@ -1,24 +1,41 @@
 package com.example.virtualuwb.presentation.screen.map
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CompassCalibration
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,15 +56,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.virtualuwb.domain.model.GeoPoint
+import com.example.virtualuwb.domain.model.Geofence
 import com.example.virtualuwb.domain.model.GeofenceType
 import com.example.virtualuwb.domain.model.UwbDevice
 import com.example.virtualuwb.domain.model.UwbRole
 import com.example.virtualuwb.presentation.viewmodel.MapUiState
 import com.example.virtualuwb.utils.GeoMath
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.MapsInitializer
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -62,12 +83,44 @@ import com.google.maps.android.compose.Polygon
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.core.content.ContextCompat
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.example.virtualuwb.R
 
-private sealed class MapItemInfo {
-    data class Tag(val device: UwbDevice) : MapItemInfo()
-    data class Anchor(val device: UwbDevice) : MapItemInfo()
-    data object Phone : MapItemInfo()
+
+private val PrimaryIndigo = Color(0xFF6366F1)
+private val SafeGreen = Color(0xFF10B981)
+private val DangerRed = Color(0xFFEF4444)
+private val UnknownGray = Color(0xFF94A3B8)
+private val GlassSurface = Color.White.copy(alpha = 0.90f)
+private val GlassBorder = Color.Black.copy(alpha = 0.08f)
+
+private enum class SafetyStatus {
+    SAFE, DANGER, UNKNOWN
 }
+
+private fun getTagSafetyStatus(tag: UwbDevice, geofences: List<Geofence>): SafetyStatus {
+    val point = tag.position
+    val inRestricted = geofences.any { it.type == GeofenceType.RESTRICTED_ZONE && com.example.virtualuwb.utils.GeofenceMath.containsPoint(point, it) }
+    if (inRestricted) return SafetyStatus.DANGER
+    val inSafe = geofences.any { it.type == GeofenceType.SAFE_ZONE && com.example.virtualuwb.utils.GeofenceMath.containsPoint(point, it) }
+    if (inSafe) return SafetyStatus.SAFE
+    return SafetyStatus.UNKNOWN
+}
+
+private fun getTagSafetyZoneName(tag: UwbDevice, geofences: List<Geofence>): String? {
+    val point = tag.position
+    val restrictedZone = geofences.firstOrNull { it.type == GeofenceType.RESTRICTED_ZONE && com.example.virtualuwb.utils.GeofenceMath.containsPoint(point, it) }
+    if (restrictedZone != null) return restrictedZone.name
+    val safeZone = geofences.firstOrNull { it.type == GeofenceType.SAFE_ZONE && com.example.virtualuwb.utils.GeofenceMath.containsPoint(point, it) }
+    if (safeZone != null) return safeZone.name
+    return null
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,7 +128,7 @@ fun GoogleIndoorMapScreen(
     uiState: MapUiState,
     hasLocationPermission: Boolean = false,
     modifier: Modifier = Modifier,
-    onSelectTagForNavigation: (String) -> Unit = {},
+    onSelectTagForNavigation: (String?) -> Unit = {},
     onFetchRoute: () -> Unit = {}
 ) {
     val hanoiLatLng = LatLng(21.036784, 105.834711)
@@ -85,52 +138,63 @@ fun GoogleIndoorMapScreen(
     val scope = rememberCoroutineScope()
     var isSatelliteMode by remember { mutableStateOf(false) }
     var sheetVisible by remember { mutableStateOf(false) }
-    var selectedMapItem by remember { mutableStateOf<MapItemInfo?>(null) }
+    var selectedAnchor by remember { mutableStateOf<UwbDevice?>(null) }
 
-    // 1. Camera bounds calculation
-    LaunchedEffect(uiState.devices, uiState.geofences) {
+    val context = LocalContext.current
+    var markerIcons by remember { mutableStateOf<MapMarkerIcons?>(null) }
+
+    LaunchedEffect(context) {
+        try {
+            MapsInitializer.initialize(context)
+            markerIcons = MapMarkerIcons(
+                phone = bitmapDescriptorFromVector(context, R.drawable.ic_marker_phone, 30),
+                anchor = bitmapDescriptorFromVector(context, R.drawable.ic_marker_anchor, 30),
+                tagSafe = bitmapDescriptorFromVector(context, R.drawable.ic_marker_tag_safe, 36),
+                tagDanger = bitmapDescriptorFromVector(context, R.drawable.ic_marker_tag_danger, 36),
+                tagSelected = bitmapDescriptorFromVector(context, R.drawable.ic_marker_tag_selected, 46)
+            )
+        } catch (e: Exception) {
+            // Safe fallback
+        }
+    }
+
+
+
+    // Camera bounds calculation (overview)
+    fun fitMapOverview() {
         val allLatLngs = mutableListOf<LatLng>()
         uiState.devices.forEach { allLatLngs.add(LatLng(it.latitude, it.longitude)) }
         uiState.geofences.forEach { geo ->
             geo.vertices.forEach { allLatLngs.add(LatLng(it.latitude, it.longitude)) }
         }
-        
+
         if (allLatLngs.isNotEmpty()) {
             val builder = LatLngBounds.builder()
             allLatLngs.forEach { builder.include(it) }
             val bounds = builder.build()
             try {
-                // padding keeps markers away from edges & bottom nav
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngBounds(bounds, 200))
+                cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(bounds, 180))
             } catch (e: Exception) {
-                // Safe ignore: Map layout might not be ready yet
-            }
-        } else {
-            try {
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(hanoiLatLng, 19f))
-            } catch (e: Exception) {
-                // Safe ignore: Map layout might not be ready yet
+                // Ignore layout not ready
             }
         }
     }
 
+    LaunchedEffect(uiState.devices, uiState.geofences) {
+        fitMapOverview()
+    }
+
     val phoneLatLng = LatLng(uiState.phonePosition.latitude, uiState.phonePosition.longitude)
     val selectedTag = uiState.selectedTag
-    val displayTag = selectedTag ?: uiState.tags.firstOrNull()
-    val displayTagId = displayTag?.id
-    val displayTagLatLng = displayTag?.let { LatLng(it.latitude, it.longitude) }
-    val distanceMeters = displayTag?.let { GeoMath.haversineDistanceMeters(uiState.phonePosition, it.position) }
-    val bearingDegrees = displayTag?.let { GeoMath.initialBearingDegrees(uiState.phonePosition, it.position) }
+    val displayTagLatLng = selectedTag?.let { LatLng(it.latitude, it.longitude) }
+    val distanceMeters = selectedTag?.let { GeoMath.haversineDistanceMeters(uiState.phonePosition, it.position) }
+    val bearingDegrees = selectedTag?.let { GeoMath.initialBearingDegrees(uiState.phonePosition, it.position) }
     val directionLabel = bearingDegrees?.let { bearingToDirection(it) }
-    var hasSeenInitialSelection by remember { mutableStateOf(false) }
 
+    // Focus camera on selected tag when chosen
     LaunchedEffect(selectedTag?.id) {
         val tag = selectedTag ?: return@LaunchedEffect
-        if (!hasSeenInitialSelection) {
-            hasSeenInitialSelection = true
-            return@LaunchedEffect
-        }
-        val zoom = maxOf(cameraPositionState.position.zoom, 19f)
+        val zoom = maxOf(cameraPositionState.position.zoom, 19.5f)
         cameraPositionState.animate(
             CameraUpdateFactory.newLatLngZoom(
                 LatLng(tag.latitude, tag.longitude),
@@ -138,6 +202,19 @@ fun GoogleIndoorMapScreen(
             )
         )
     }
+
+    // Focus camera on selected anchor when chosen
+    LaunchedEffect(selectedAnchor?.id) {
+        val anchor = selectedAnchor ?: return@LaunchedEffect
+        val zoom = maxOf(cameraPositionState.position.zoom, 19.5f)
+        cameraPositionState.animate(
+            CameraUpdateFactory.newLatLngZoom(
+                LatLng(anchor.latitude, anchor.longitude),
+                zoom
+            )
+        )
+    }
+
 
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
@@ -149,156 +226,182 @@ fun GoogleIndoorMapScreen(
             ),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
-                compassEnabled = true,
+                compassEnabled = false,
                 mapToolbarEnabled = false,
                 myLocationButtonEnabled = false
             )
         ) {
-            // 2. Render Geofences (Polygons)
+            // Render Geofences (Polygons)
             uiState.geofences.forEach { geofence ->
                 val polygonPoints = geofence.vertices.map { LatLng(it.latitude, it.longitude) }
-
                 Polygon(
                     points = polygonPoints,
                     strokeColor = geofenceStrokeColor(geofence.type),
                     fillColor = geofenceFillColor(geofence.type),
-                    strokeWidth = 5f
+                    strokeWidth = 4f
                 )
             }
 
-            // 3. Render Anchors & Tags with overlap mitigation
+            // Render Anchors & Tags
             val allDevices = uiState.devices
             allDevices.forEach { device ->
                 val position = applyDisplayOffsetIfOverlapping(device, allDevices)
-                val colorHue = if (device.id == displayTagId && device.isTag) {
-                    BitmapDescriptorFactory.HUE_RED
-                } else {
-                    deviceMarkerColor(device.role)
+                val isSelected = selectedTag?.id == device.id && device.isTag
+                
+                val markerIcon = when {
+                    device.role == UwbRole.ANCHOR -> markerIcons?.anchor ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE)
+                    isSelected -> markerIcons?.tagSelected ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET)
+                    device.isTag && uiState.restrictedGeofences.any { zone -> com.example.virtualuwb.utils.GeofenceMath.containsPoint(device.position, zone) } -> markerIcons?.tagDanger ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                    else -> markerIcons?.tagSafe ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE)
                 }
 
                 Marker(
                     state = MarkerState(position = position),
                     title = device.name,
-                    // Disable default InfoWindow
                     onClick = {
-                        selectedMapItem = if (device.isTag) {
-                            MapItemInfo.Tag(device)
+                        if (device.isTag) {
+                            selectedAnchor = null
+                            onSelectTagForNavigation(device.id)
                         } else {
-                            MapItemInfo.Anchor(device)
+                            onSelectTagForNavigation(null)
+                            selectedAnchor = device
                         }
                         true
                     },
-                    icon = BitmapDescriptorFactory.defaultMarker(colorHue)
+                    icon = markerIcon
                 )
+
             }
 
-            // 4. Render Phone position (Simulated or GPS)
+            // Render Phone Position
             Marker(
                 state = MarkerState(position = phoneLatLng),
-                title = "Phone",
-                // Disable default InfoWindow
-                onClick = {
-                    selectedMapItem = MapItemInfo.Phone
-                    true
-                },
-                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET)
+                title = "Your Phone",
+                onClick = { true },
+                icon = markerIcons?.phone ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
             )
 
-            // 5. Guidance line from phone to the display target
+
+
+            // Render Route Polyline
             val route = uiState.routeToSelectedTag
-            if (route != null && route.success && route.encodedPolyline != null) {
-                val decodedPoints = decodePolyline(route.encodedPolyline)
-                if (decodedPoints.isNotEmpty()) {
+            if (uiState.hasRequestedRoute) {
+                if (route != null && route.success && route.encodedPolyline != null) {
+                    val decodedPoints = decodePolyline(route.encodedPolyline)
+                    if (decodedPoints.isNotEmpty()) {
+                        Polyline(
+                            points = decodedPoints,
+                            color = PrimaryIndigo,
+                            width = 8f
+                        )
+                    }
+                } else if (uiState.routeError != null && displayTagLatLng != null) {
                     Polyline(
-                        points = decodedPoints,
-                        color = Color(0xFF2962FF),
-                        width = 8f
+                        points = listOf(phoneLatLng, displayTagLatLng),
+                        color = PrimaryIndigo.copy(alpha = 0.8f),
+                        width = 6f
                     )
                 }
-            } else if (uiState.hasRequestedRoute && uiState.routeError != null && displayTagLatLng != null) {
-                Polyline(
-                    points = listOf(phoneLatLng, displayTagLatLng),
-                    color = Color(0xFF2962FF),
-                    width = 6f
-                )
             }
         }
 
-        Column(
+        // 1. Top status capsule
+        MapStatusCapsule(
+            selectedTag = selectedTag,
+            uiState = uiState,
+            distanceMeters = distanceMeters,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(top = 12.dp)
+        )
+
+        // 2. Right-side vertical controls
+        MapControlStack(
+            isSatelliteMode = isSatelliteMode,
+            onZoomIn = {
+                val newZoom = (cameraPositionState.position.zoom + 1f).coerceIn(15f, 22f)
+                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomTo(newZoom)) }
+            },
+            onZoomOut = {
+                val newZoom = (cameraPositionState.position.zoom - 1f).coerceIn(15f, 22f)
+                scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomTo(newZoom)) }
+            },
+            onToggleMapType = { isSatelliteMode = !isSatelliteMode },
+            onRecenterPhone = {
+                scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(phoneLatLng, 19.5f)) }
+            },
+            onOpenTags = { sheetVisible = true },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 16.dp)
+        )
+
+        // 3. Selected tag bottom card
+        AnimatedVisibility(
+            visible = selectedTag != null,
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 136.dp)
         ) {
-            TargetTrackingCard(
-                displayTag = displayTag,
-                distanceMeters = distanceMeters,
-                directionLabel = directionLabel,
-                routeResult = uiState.routeToSelectedTag,
-                isRouteLoading = uiState.isRouteLoading,
-                routeError = uiState.routeError,
-                onFetchRouteClick = onFetchRoute,
-                onClick = { sheetVisible = true }
-            )
-
-            MapQuickControlsRow(
-                isSatelliteMode = isSatelliteMode,
-                onZoomIn = {
-                    val currentZoom = cameraPositionState.position.zoom
-                    val newZoom = (currentZoom + 1f).coerceIn(15f, 22f)
-                    scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomTo(newZoom)) }
-                },
-                onZoomOut = {
-                    val currentZoom = cameraPositionState.position.zoom
-                    val newZoom = (currentZoom - 1f).coerceIn(15f, 22f)
-                    scope.launch { cameraPositionState.animate(CameraUpdateFactory.zoomTo(newZoom)) }
-                },
-                onToggleMapType = { isSatelliteMode = !isSatelliteMode },
-                onLocatePhone = {
-                    val currentZoom = cameraPositionState.position.zoom
-                    scope.launch { cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(phoneLatLng, currentZoom)) }
-                },
-                onOpenTagSelector = { sheetVisible = true }
-            )
+            if (selectedTag != null) {
+                val nearestAnchor = findNearestAnchor(selectedTag, uiState.devices)
+                SelectedTagBottomCard(
+                    device = selectedTag,
+                    distanceMeters = distanceMeters,
+                    directionLabel = directionLabel,
+                    routeResult = uiState.routeToSelectedTag,
+                    isRouteLoading = uiState.isRouteLoading,
+                    routeError = uiState.routeError,
+                    nearestAnchor = nearestAnchor,
+                    safetyStatus = getTagSafetyStatus(selectedTag, uiState.geofences),
+                    onFetchRoute = onFetchRoute,
+                    onClose = {
+                        onSelectTagForNavigation(null)
+                        fitMapOverview()
+                    }
+                )
+            }
         }
 
-        // Custom info card overlay
-        selectedMapItem?.let { item ->
-            MapItemInfoCard(
-                item = item,
-                uiState = uiState,
-                onClose = { selectedMapItem = null },
-                onNavigateToTag = { tagId ->
-                    onSelectTagForNavigation(tagId)
-                    selectedMapItem = null
-                },
-                onFetchRouteClick = onFetchRoute,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 112.dp)
-            )
+        // 4. Selected anchor bottom card
+        AnimatedVisibility(
+            visible = selectedAnchor != null,
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 136.dp)
+        ) {
+            if (selectedAnchor != null) {
+                val nearestTag = findNearestTag(selectedAnchor!!, uiState.devices)
+                SelectedAnchorBottomCard(
+                    device = selectedAnchor!!,
+                    nearestTag = nearestTag,
+                    onClose = {
+                        selectedAnchor = null
+                        fitMapOverview()
+                    }
+                )
+            }
         }
 
+        // Tags Bottom Sheet Selector
         if (sheetVisible) {
             TagSelectorBottomSheet(
                 tags = uiState.tags,
-                selectedTagId = displayTagId,
+                selectedTagId = selectedTag?.id,
                 phonePosition = uiState.phonePosition,
+                uiState = uiState,
                 onDismiss = { sheetVisible = false },
                 onSelectTag = { tag ->
+                    selectedAnchor = null
                     onSelectTagForNavigation(tag.id)
                     sheetVisible = false
-                    val zoom = maxOf(cameraPositionState.position.zoom, 19f)
-                    scope.launch {
-                        cameraPositionState.animate(
-                            CameraUpdateFactory.newLatLngZoom(
-                                LatLng(tag.latitude, tag.longitude),
-                                zoom
-                            )
-                        )
-                    }
                 }
             )
         }
@@ -306,246 +409,444 @@ fun GoogleIndoorMapScreen(
 }
 
 @Composable
-private fun MapItemInfoCard(
-    item: MapItemInfo,
+private fun MapStatusCapsule(
+    selectedTag: UwbDevice?,
     uiState: MapUiState,
-    onClose: () -> Unit,
-    onNavigateToTag: (String) -> Unit,
-    onFetchRouteClick: () -> Unit,
+    distanceMeters: Double?,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    val dangerCount = uiState.tags.count { tag ->
+        getTagSafetyStatus(tag, uiState.geofences) == SafetyStatus.DANGER
+    }
+
+    val route = uiState.routeToSelectedTag
+
+    val text = when {
+        selectedTag == null -> {
+            "Live Map · ${uiState.tags.size} Tags · $dangerCount Alert"
+        }
+        uiState.isRouteLoading -> {
+            "Calculating route..."
+        }
+        uiState.hasRequestedRoute && route != null && route.success -> {
+            val dist = route.distanceMeters ?: 0
+            val dur = route.duration ?: "..."
+            "Route to ${selectedTag.name} · ${dist}m · $dur"
+        }
+        uiState.hasRequestedRoute && uiState.routeError != null -> {
+            "Route unavailable · Direct fallback"
+        }
+        else -> {
+            val safetyStatus = getTagSafetyStatus(selectedTag, uiState.geofences)
+            val safety = when (safetyStatus) {
+                SafetyStatus.DANGER -> "Danger"
+                SafetyStatus.SAFE -> "Safe"
+                SafetyStatus.UNKNOWN -> "Unknown"
+            }
+            val distStr = distanceMeters?.let { String.format(java.util.Locale.US, "%.1fm", it) } ?: "..."
+            "${selectedTag.name} · $safety · $distStr"
+        }
+    }
+
+    val statusColor = when {
+        selectedTag == null && dangerCount > 0 -> DangerRed
+        selectedTag == null -> SafeGreen
+        uiState.isRouteLoading -> PrimaryIndigo
+        uiState.hasRequestedRoute && uiState.routeError != null -> DangerRed
+        selectedTag != null -> {
+            when (getTagSafetyStatus(selectedTag, uiState.geofences)) {
+                SafetyStatus.DANGER -> DangerRed
+                SafetyStatus.SAFE -> SafeGreen
+                SafetyStatus.UNKNOWN -> UnknownGray
+            }
+        }
+        else -> SafeGreen
+    }
+
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(100.dp),
+        color = GlassSurface,
+        border = BorderStroke(1.dp, GlassBorder),
+        shadowElevation = 6.dp
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = when (item) {
-                        is MapItemInfo.Tag -> item.device.name
-                        is MapItemInfo.Anchor -> item.device.name
-                        MapItemInfo.Phone -> "Your Phone"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onClose) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
-                }
-            }
-            
-            val positionText = when (item) {
-                is MapItemInfo.Tag -> "Lat: ${formatCoord(item.device.latitude)}, Lng: ${formatCoord(item.device.longitude)}"
-                is MapItemInfo.Anchor -> "Lat: ${formatCoord(item.device.latitude)}, Lng: ${formatCoord(item.device.longitude)}"
-                MapItemInfo.Phone -> "Lat: ${formatCoord(uiState.phonePosition.latitude)}, Lng: ${formatCoord(uiState.phonePosition.longitude)}"
-            }
-            Text(text = positionText, style = MaterialTheme.typography.bodyMedium)
-            
-            val distanceText = when (item) {
-                is MapItemInfo.Tag -> {
-                    val dist = GeoMath.haversineDistanceMeters(uiState.phonePosition, item.device.position)
-                    "Distance: ${String.format(java.util.Locale.US, "%.1f", dist)} m"
-                }
-                is MapItemInfo.Anchor -> {
-                    val dist = GeoMath.haversineDistanceMeters(uiState.phonePosition, item.device.position)
-                    "Distance: ${String.format(java.util.Locale.US, "%.1f", dist)} m"
-                }
-                MapItemInfo.Phone -> null
-            }
-            
-            if (distanceText != null) {
-                Text(text = distanceText, style = MaterialTheme.typography.bodyMedium)
-            }
-            
-            val roleText = when (item) {
-                is MapItemInfo.Tag -> "Role: Tag"
-                is MapItemInfo.Anchor -> "Role: Anchor"
-                MapItemInfo.Phone -> "Role: Phone"
-            }
-            Text(text = roleText, style = MaterialTheme.typography.bodyMedium)
-            
-            if (item is MapItemInfo.Tag) {
-                Button(
-                    onClick = {
-                        onNavigateToTag(item.device.id)
-                        onFetchRouteClick()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                ) {
-                    Text("Guide me")
-                }
-            }
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(statusColor, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF1E293B)
+            )
         }
     }
 }
 
 @Composable
-private fun TargetTrackingCard(
-    displayTag: UwbDevice?,
+private fun MapControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(48.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, GlassBorder),
+        tonalElevation = 2.dp,
+        shadowElevation = 4.dp
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (selected) PrimaryIndigo else Color(0xFF475569),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapControlStack(
+    isSatelliteMode: Boolean,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onToggleMapType: () -> Unit,
+    onRecenterPhone: () -> Unit,
+    onOpenTags: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MapControlButton(
+            icon = Icons.Default.MyLocation,
+            contentDescription = "Recenter",
+            onClick = onRecenterPhone,
+            selected = true
+        )
+        MapControlButton(
+            icon = Icons.Default.ZoomIn,
+            contentDescription = "Zoom In",
+            onClick = onZoomIn
+        )
+        MapControlButton(
+            icon = Icons.Default.ZoomOut,
+            contentDescription = "Zoom Out",
+            onClick = onZoomOut
+        )
+        MapControlButton(
+            icon = if (isSatelliteMode) Icons.Default.Map else Icons.Default.Layers,
+            contentDescription = "Map Type",
+            onClick = onToggleMapType,
+            selected = isSatelliteMode
+        )
+        MapControlButton(
+            icon = Icons.Default.People,
+            contentDescription = "Tags Selector",
+            onClick = onOpenTags
+        )
+    }
+}
+
+private data class NearestAnchorInfo(
+    val name: String,
+    val distanceMeters: Double
+)
+
+private fun findNearestAnchor(tag: UwbDevice, devices: List<UwbDevice>): NearestAnchorInfo? {
+    val anchors = devices.filter { it.role == UwbRole.ANCHOR }
+    if (anchors.isEmpty()) return null
+    return anchors.map { anchor ->
+        NearestAnchorInfo(
+            name = anchor.name,
+            distanceMeters = GeoMath.haversineDistanceMeters(tag.position, anchor.position)
+        )
+    }.minByOrNull { it.distanceMeters }
+}
+
+@Composable
+private fun SelectedTagBottomCard(
+    device: UwbDevice,
     distanceMeters: Double?,
     directionLabel: String?,
     routeResult: com.example.virtualuwb.domain.model.RouteResult?,
     isRouteLoading: Boolean,
     routeError: String?,
-    onFetchRouteClick: () -> Unit,
-    onClick: () -> Unit
+    nearestAnchor: NearestAnchorInfo?,
+    safetyStatus: SafetyStatus,
+    onFetchRoute: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val statusLabel = when {
-        displayTag == null -> "Select"
-        distanceMeters != null && distanceMeters <= 2.0 -> "Reached"
-        distanceMeters != null && distanceMeters <= 5.0 -> "Nearby"
-        else -> "Tracking"
-    }
-
-    val subtitle = when {
-        displayTag == null -> "Select target"
-        isRouteLoading -> "Calculating route..."
-        routeError != null -> {
-            val shortError = if (routeError.length > 25) routeError.take(22) + "..." else routeError
-            val directStr = distanceMeters?.let { String.format(java.util.Locale.US, "%.1f m", it) } ?: ""
-            "Route Err: $shortError • Direct: $directStr"
-        }
-        routeResult != null && routeResult.success -> {
-            val dist = routeResult.distanceMeters ?: 0
-            val dur = routeResult.duration ?: ""
-            "Route: $dist m · $dur (Google Routes)"
-        }
-        distanceMeters != null && directionLabel != null ->
-            String.format(java.util.Locale.US, "%.1f m · %s (Direct guidance)", distanceMeters, directionLabel)
-        distanceMeters != null -> String.format(java.util.Locale.US, "%.1f m (Direct guidance)", distanceMeters)
-        else -> "Tracking"
-    }
-
     Card(
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)),
+        border = BorderStroke(1.dp, GlassBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayTag?.name ?: "Select target",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (routeError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                )
+        Box(modifier = Modifier.padding(14.dp)) {
+            // Close Button
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(24.dp)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
             }
 
-            if (displayTag != null) {
-                Button(
-                    onClick = onFetchRouteClick,
-                    enabled = !isRouteLoading,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.padding(end = 8.dp)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Header
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = device.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    SafetyChip(safetyStatus = safetyStatus)
+                }
+
+                Text(
+                    text = "TAG · ${device.id}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF64748B),
+                    modifier = Modifier.padding(top = 1.dp)
+                )
+
+                if (safetyStatus == SafetyStatus.UNKNOWN) {
+                    Text(
+                        text = "Outside defined zones",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = UnknownGray,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 1.dp)
+                    )
+                }
+
+                // Nearest Anchor Info
+                if (nearestAnchor != null) {
+                    Text(
+                        text = "Closest anchor · ${nearestAnchor.name} · ${String.format(java.util.Locale.US, "%.1f m", nearestAnchor.distanceMeters)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF64748B),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                // Info Section
+                Spacer(modifier = Modifier.height(10.dp))
+                val directStr = if (distanceMeters != null && directionLabel != null) {
+                    "${String.format(java.util.Locale.US, "%.1f m", distanceMeters)} · $directionLabel"
+                } else {
+                    "Unknown"
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Route", fontSize = 12.sp)
+                    Column {
+                        Text("Direct", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                        Text(directStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                    }
+
+                    if (routeResult != null && routeResult.success) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Google Route", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                            Text(
+                                text = "${routeResult.distanceMeters}m · ${routeResult.duration}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryIndigo
+                            )
+                        }
+                    } else if (isRouteLoading) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Google Route", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                            Text("Calculating...", style = MaterialTheme.typography.bodyMedium, color = PrimaryIndigo)
+                        }
+                    } else if (routeError != null) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Google Route", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                            Text("Unavailable", style = MaterialTheme.typography.bodyMedium, color = DangerRed)
+                        }
+                    }
+                }
+
+                // Full-width button
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onFetchRoute,
+                    enabled = !isRouteLoading,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (routeResult != null) "Update Route" else "Route",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
+        }
+    }
+}
 
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+@Composable
+private fun SafetyChip(safetyStatus: SafetyStatus) {
+    val label = when (safetyStatus) {
+        SafetyStatus.SAFE -> "Safe"
+        SafetyStatus.DANGER -> "Danger"
+        SafetyStatus.UNKNOWN -> "Unknown"
+    }
+    val color = when (safetyStatus) {
+        SafetyStatus.SAFE -> SafeGreen
+        SafetyStatus.DANGER -> DangerRed
+        SafetyStatus.UNKNOWN -> UnknownGray
+    }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.25f))
+    ) {
+        Text(
+            text = label.uppercase(),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+private data class NearestTagInfo(
+    val name: String,
+    val distanceMeters: Double
+)
+
+private fun findNearestTag(anchor: UwbDevice, devices: List<UwbDevice>): NearestTagInfo? {
+    val tags = devices.filter { it.role == UwbRole.TAG }
+    if (tags.isEmpty()) return null
+    return tags.map { tag ->
+        NearestTagInfo(
+            name = tag.name,
+            distanceMeters = GeoMath.haversineDistanceMeters(anchor.position, tag.position)
+        )
+    }.minByOrNull { it.distanceMeters }
+}
+
+@Composable
+private fun SelectedAnchorBottomCard(
+    device: UwbDevice,
+    nearestTag: NearestTagInfo?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)),
+        border = BorderStroke(1.dp, GlassBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(modifier = Modifier.padding(14.dp)) {
+            // Close Button
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(24.dp)
             ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Header
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = device.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+
                 Text(
-                    text = statusLabel,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    text = "ANCHOR · ${device.id}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF64748B),
+                    modifier = Modifier.padding(top = 1.dp)
                 )
+
+                Text(
+                    text = "Fixed infrastructure node",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF334155),
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Coordinates", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                        Text(
+                            text = String.format(java.util.Locale.US, "%.6f, %.6f", device.latitude, device.longitude),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF334155)
+                        )
+                    }
+
+                    if (nearestTag != null) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Closest Tag", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                            Text(
+                                text = "${nearestTag.name} · ${String.format(java.util.Locale.US, "%.1fm", nearestTag.distanceMeters)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryIndigo
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun MapQuickControlsRow(
-    isSatelliteMode: Boolean,
-    onZoomIn: () -> Unit,
-    onZoomOut: () -> Unit,
-    onToggleMapType: () -> Unit,
-    onLocatePhone: () -> Unit,
-    onOpenTagSelector: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        SmallMapControlButton(text = "+", onClick = onZoomIn)
-        SmallMapControlButton(text = "−", onClick = onZoomOut)
-        SmallMapControlButton(
-            text = if (isSatelliteMode) "MAP" else "SAT",
-            active = isSatelliteMode,
-            onClick = onToggleMapType
-        )
-        SmallMapControlButton(text = "GPS", onClick = onLocatePhone)
-        SmallMapControlButton(text = "Tags", onClick = onOpenTagSelector)
-    }
-}
-
-@Composable
-private fun SmallMapControlButton(
-    text: String,
-    active: Boolean = false,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (active) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        contentColor = if (active) MaterialTheme.colorScheme.onPrimary
-                       else MaterialTheme.colorScheme.primary,
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
-        border = if (!active) BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-        ) else null,
-        modifier = Modifier.height(42.dp).defaultMinSize(minWidth = when(text) {
-            "+", "−" -> 44.dp
-            "SAT", "MAP" -> 52.dp
-            "GPS" -> 54.dp
-            "Tags" -> 64.dp
-            else -> 44.dp
-        })
-    ) {
-        Box(
-            modifier = Modifier
-                .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                fontSize = if (text == "+" || text == "−") 18.sp else 12.sp,
-                fontWeight = if (text == "+" || text == "−") FontWeight.Bold else FontWeight.SemiBold
-            )
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -553,99 +854,107 @@ private fun TagSelectorBottomSheet(
     tags: List<UwbDevice>,
     selectedTagId: String?,
     phonePosition: GeoPoint,
+    uiState: MapUiState,
     onDismiss: () -> Unit,
     onSelectTag: (UwbDevice) -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = GlassSurface
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .padding(vertical = 12.dp, horizontal = 20.dp)
         ) {
+            Text(
+                text = "Select Tag",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A),
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
             tags.forEach { tag ->
                 val distance = GeoMath.haversineDistanceMeters(phonePosition, tag.position)
-                Row(
+                val isSelected = tag.id == selectedTagId
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isSelected) PrimaryIndigo.copy(alpha = 0.08f) else Color.Transparent,
+                    border = if (isSelected) BorderStroke(1.dp, PrimaryIndigo.copy(alpha = 0.2f)) else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onSelectTag(tag) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = tag.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "${tag.id} • ${String.format(java.util.Locale.US, "%.1f m", distance)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                        )
-                    }
-                    if (tag.id == selectedTagId) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = "Selected",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = tag.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E293B)
+                            )
+                            Text(
+                                text = "${tag.id} · ${String.format(java.util.Locale.US, "%.1f m", distance)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Selected",
+                                tint = PrimaryIndigo
+                            )
+                        }
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 private fun bearingToDirection(bearing: Double): String {
     val directions = arrayOf(
-        "North",
-        "Northeast",
-        "East",
-        "Southeast",
-        "South",
-        "Southwest",
-        "West",
-        "Northwest"
+        "N", "NE", "E", "SE", "S", "SW", "W", "NW"
     )
     val normalized = ((bearing % 360) + 360) % 360
     val index = ((normalized + 22.5) / 45.0).toInt() % directions.size
     return directions[index]
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────
-
 private fun geofenceStrokeColor(type: GeofenceType): Color {
     return when (type) {
-        GeofenceType.RESTRICTED_ZONE -> Color(0xFFD32F2F)
-        GeofenceType.SAFE_ZONE -> Color(0xFF388E3C)
+        GeofenceType.RESTRICTED_ZONE -> DangerRed
+        GeofenceType.SAFE_ZONE -> SafeGreen
         GeofenceType.ROOM -> Color.Gray
     }
 }
 
 private fun geofenceFillColor(type: GeofenceType): Color {
-    return geofenceStrokeColor(type).copy(alpha = 0.15f)
+    return geofenceStrokeColor(type).copy(alpha = 0.12f)
 }
 
 private fun deviceMarkerColor(role: UwbRole): Float {
     return when (role) {
-        // Azure for Anchors, Orange for Tags
         UwbRole.ANCHOR -> BitmapDescriptorFactory.HUE_AZURE
         UwbRole.TAG -> BitmapDescriptorFactory.HUE_ORANGE
     }
 }
 
-private fun formatCoord(value: Double): String = String.format(java.util.Locale.US, "%.5f", value)
-
 private fun isVeryClose(p1: GeoPoint, p2: GeoPoint): Boolean {
-    // Roughly equal within ~0.5 meters
     return kotlin.math.abs(p1.latitude - p2.latitude) < 0.000005 &&
            kotlin.math.abs(p1.longitude - p2.longitude) < 0.000005
 }
 
-/**
- * Ensures tags don't perfectly stack on top of each other.
- * If multiple devices share the same coordinate, they are spaced out in a tiny circle.
- */
 private fun applyDisplayOffsetIfOverlapping(
     device: UwbDevice,
     allDevices: List<UwbDevice>
@@ -657,7 +966,6 @@ private fun applyDisplayOffsetIfOverlapping(
         return LatLng(original.latitude, original.longitude)
     }
     
-    // Sort to make the visual index deterministic (no jitter on re-render)
     val sortedDuplicates = duplicates.sortedBy { it.id }
     val index = sortedDuplicates.indexOfFirst { it.id == device.id }
     
@@ -665,10 +973,8 @@ private fun applyDisplayOffsetIfOverlapping(
         return LatLng(original.latitude, original.longitude)
     }
     
-    // Offset in a small circle (~1.5 meters) so pins are independently clickable
     val radius = 0.000015
     val angle = (Math.PI * 2 / duplicates.size) * index
-    
     val latOffset = radius * kotlin.math.cos(angle)
     val lonOffset = radius * kotlin.math.sin(angle)
     
@@ -705,3 +1011,32 @@ private fun decodePolyline(encoded: String): List<LatLng> {
     }
     return poly
 }
+
+private fun bitmapDescriptorFromVector(
+    context: Context,
+    vectorResId: Int,
+    sizeDp: Int
+): BitmapDescriptor? {
+    return try {
+        val drawable = ContextCompat.getDrawable(context, vectorResId) ?: return null
+        val density = context.resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt()
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        BitmapDescriptorFactory.fromBitmap(bitmap)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private class MapMarkerIcons(
+    val phone: BitmapDescriptor?,
+    val anchor: BitmapDescriptor?,
+    val tagSafe: BitmapDescriptor?,
+    val tagDanger: BitmapDescriptor?,
+    val tagSelected: BitmapDescriptor?
+)
+
+
