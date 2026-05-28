@@ -215,7 +215,7 @@ fun GoogleIndoorMapScreen(
                         width = 8f
                     )
                 }
-            } else if (displayTagLatLng != null) {
+            } else if (uiState.hasRequestedRoute && uiState.routeError != null && displayTagLatLng != null) {
                 Polyline(
                     points = listOf(phoneLatLng, displayTagLatLng),
                     color = Color(0xFF2962FF),

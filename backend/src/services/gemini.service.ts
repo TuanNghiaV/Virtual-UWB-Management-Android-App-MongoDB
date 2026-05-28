@@ -7,17 +7,34 @@ export interface IGeminiError {
   message: string;
 }
 
-const SYSTEM_INSTRUCTION = `You are the AI Assistant inside the VirtualUWB application, a system for simulator-based Ultra-Wideband (UWB) indoor positioning, geofencing, and safety monitoring.
+export function detectUserLanguage(message: string): "English" | "Vietnamese" {
+  const vietnamesePattern = /[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/i;
+  const vietnameseWords = /\b(tôi|mình|bạn|chị|em|ở đâu|chỉ đường|an toàn|nguy hiểm|vị trí|đến|tới|tag nào|có|không)\b/i;
+  if (vietnamesePattern.test(message) || vietnameseWords.test(message)) return "Vietnamese";
+  return "English";
+}
+
+const getSystemInstruction = (userLanguage: "English" | "Vietnamese") => `You are the AI Assistant inside the VirtualUWB application, a system for simulator-based Ultra-Wideband (UWB) indoor positioning, geofencing, and safety monitoring.
+
+Language Rule:
+- Your response language must be: ${userLanguage}.
+- You must respond in the same language as the user's latest message (which has been detected as ${userLanguage}).
+- Determine the response language from this rule only.
+- Do not use the language of route instructions, context data, database values, tag names, zone names, or previous assistant messages to decide the response language.
+- If the detected language is English, answer in English.
+- If the detected language is Vietnamese, answer in Vietnamese.
+- If context contains route steps or instructions in another language, translate or paraphrase them into ${userLanguage} for your response.
+- Keep proper names, tag names (e.g. "Anh", "Kiên", "Huy", "Linh"), device codes, and zone names (e.g. "Safe Zone", "Restricted Zone") unchanged.
 
 Follow these strict rules:
-1. Reply in the same language as the user. If the user asks in Vietnamese, reply in Vietnamese.
+1. Reply in ${userLanguage}.
 2. If the user's question is about UWB, tags, anchors, geofences, safety, danger, route, map, or events, answer using the provided context.
 3. Do not invent tags, zones, coordinates, distances, events, or routes. Only use the data present in the context.
 4. If the requested tag is missing or not configured, clearly state that it is not available.
 5. If a tag is in RESTRICTED_ZONE, clearly state that it is dangerous (nguy hiểm).
 6. If a tag is in SAFE_ZONE, clearly state that it is safe (an toàn).
-7. Google Routes is used for outdoor/street-level routing. If a route exists in the context (success=true), use it to describe outdoor steps or overall distance/duration. Do not invent turn-by-turn route steps if none are provided.
-8. The final indoor/UWB approach uses direct phone-to-tag guidance (distance and direction directly from phone to tag). Explain that Google Routes only covers the outdoor/street level approach.
+7. Google Routes is used for outdoor/street-level routing. When the user asks for directions to a named tag, use the provided route context if available. If a route exists in the context (success=true), use it to explain the outdoor/street-level route and include the distance, duration, and key steps. Do not invent turn-by-turn route steps if none are provided. If Google Routes is unavailable, explain that exact street-level routing is unavailable and provide the direct distance/direction fallback. Do not say that the user must select the tag on the Map first if the target tag and phone position are already available in the context.
+8. The final indoor/UWB approach uses direct phone-to-tag guidance (distance and direction directly from phone to tag). Explain that Google Routes only covers the outdoor/street-level approach, and the final approach requires UWB direct guidance.
 9. Keep answers concise and demo-friendly by default.
 10. If the question is general and unrelated to VirtualUWB, answer as a general assistant.
 11. Do not claim access to live realtime data beyond the context provided.`;
@@ -28,7 +45,8 @@ Follow these strict rules:
 const callGeminiModel = async (
   model: string,
   prompt: string,
-  apiKey: string
+  apiKey: string,
+  userLanguage: "English" | "Vietnamese"
 ): Promise<string> => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -36,7 +54,7 @@ const callGeminiModel = async (
     systemInstruction: {
       parts: [
         {
-          text: SYSTEM_INSTRUCTION,
+          text: getSystemInstruction(userLanguage),
         },
       ],
     },
@@ -136,7 +154,10 @@ const callGeminiModel = async (
 /**
  * Orchestrates calls to Gemini with a fallback model sequence.
  */
-export const queryGemini = async (prompt: string): Promise<string> => {
+export const queryGemini = async (
+  prompt: string,
+  userLanguage: "English" | "Vietnamese" = "English"
+): Promise<string> => {
   const apiKey = env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -157,7 +178,7 @@ export const queryGemini = async (prompt: string): Promise<string> => {
   for (const model of fallbackModels) {
     try {
       console.log(`[Gemini] Attempting generation using model: ${model}`);
-      const result = await callGeminiModel(model, prompt, apiKey);
+      const result = await callGeminiModel(model, prompt, apiKey, userLanguage);
       console.log(`[Gemini] Generation succeeded with model: ${model}`);
       return result;
     } catch (err: any) {

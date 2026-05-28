@@ -11,6 +11,7 @@ import com.example.virtualuwb.domain.model.DataSourceMode
 import com.example.virtualuwb.domain.model.GeofenceType
 import com.example.virtualuwb.domain.repository.AiAssistantRepository
 import com.example.virtualuwb.presentation.viewmodel.MapUiState
+import com.example.virtualuwb.presentation.viewmodel.MapViewModel
 import com.example.virtualuwb.utils.GeoMath
 import com.example.virtualuwb.utils.GeofenceMath
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,7 +58,7 @@ class AssistantViewModel(
      * Sends a question to the AI Assistant.
      * Builds a comprehensive UWB context (tags, positions, zones) from the current [uiState].
      */
-    fun sendMessage(uiState: MapUiState, text: String? = null) {
+    fun sendMessage(uiState: MapUiState, mapViewModel: MapViewModel, text: String? = null) {
         val question = (text ?: _inputText.value).trim()
         if (question.isBlank() || _isLoading.value) return
 
@@ -74,8 +75,63 @@ class AssistantViewModel(
         _isLoading.value = true
 
         viewModelScope.launch {
-            val context = buildContext(uiState)
-            val selectedTagCode = uiState.selectedTag?.id
+            var currentUiState = uiState
+            
+            if (AssistantNavigationIntentParser.isNavigationIntent(question)) {
+                val targetName = AssistantNavigationIntentParser.extractTargetName(question)
+                if (targetName != null) {
+                    val normalizedTarget = AssistantNavigationIntentParser.normalizeText(targetName)
+                    val activeTags = uiState.devices.filter { it.isTag }
+                    val matchedTags = activeTags.filter { tag ->
+                        val normalizedTagName = AssistantNavigationIntentParser.normalizeText(tag.name)
+                        val normalizedTagCode = AssistantNavigationIntentParser.normalizeText(tag.id)
+                        normalizedTagName == normalizedTarget || 
+                        normalizedTagCode == normalizedTarget ||
+                        normalizedTagName.contains(normalizedTarget) ||
+                        normalizedTarget.contains(normalizedTagName)
+                    }
+
+                    if (matchedTags.isEmpty()) {
+                        _isLoading.value = false
+                        val lang = AssistantNavigationIntentParser.normalizeText(question)
+                        val isVietnamese = lang.contains("chi duong") || lang.contains("den") || lang.contains("toi") || lang.contains("di")
+                        val ans = if (isVietnamese) {
+                            "Tôi không tìm thấy tag tên \"$targetName\". Bạn hãy kiểm tra lại tên tag."
+                        } else {
+                            "I couldn't find a tag named \"$targetName\". Please check the tag name."
+                        }
+                        _messages.value = _messages.value + AssistantMessage(
+                            id = UUID.randomUUID().toString(),
+                            text = ans,
+                            isUser = false
+                        )
+                        return@launch
+                    } else if (matchedTags.size > 1) {
+                        _isLoading.value = false
+                        val lang = AssistantNavigationIntentParser.normalizeText(question)
+                        val isVietnamese = lang.contains("chi duong") || lang.contains("den") || lang.contains("toi") || lang.contains("di")
+                        val tagNamesList = matchedTags.map { it.name }.joinToString(", ")
+                        val ans = if (isVietnamese) {
+                            "Tôi tìm thấy nhiều tag phù hợp: $tagNamesList. Bạn muốn chỉ đường đến tag nào?"
+                        } else {
+                            "I found multiple matching tags: $tagNamesList. Which tag do you want directions to?"
+                        }
+                        _messages.value = _messages.value + AssistantMessage(
+                            id = UUID.randomUUID().toString(),
+                            text = ans,
+                            isUser = false
+                        )
+                        return@launch
+                    } else {
+                        val resolvedTag = matchedTags[0]
+                        mapViewModel.prepareRouteForTagFromAssistant(resolvedTag)
+                        currentUiState = mapViewModel.uiState.value
+                    }
+                }
+            }
+
+            val context = buildContext(currentUiState)
+            val selectedTagCode = currentUiState.selectedTag?.id
             val repository = resolveRepository(uiState.dataSourceMode)
             Log.d(TAG, "sendMessage compactContext=${compactContextLog(context)}")
             val result = repository.askAssistant(question, context, selectedTagCode)

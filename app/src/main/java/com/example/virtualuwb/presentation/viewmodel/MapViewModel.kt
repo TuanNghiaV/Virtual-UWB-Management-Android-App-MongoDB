@@ -65,6 +65,7 @@ class MapViewModel : ViewModel() {
     private val routeToSelectedTagFlow = MutableStateFlow<RouteResult?>(null)
     private val isRouteLoadingFlow = MutableStateFlow(false)
     private val routeErrorFlow = MutableStateFlow<String?>(null)
+    private val hasRequestedRouteFlow = MutableStateFlow(false)
 
     private val apiGoogleRoutesRepository = ApiGoogleRoutesRepository()
     
@@ -256,15 +257,17 @@ class MapViewModel : ViewModel() {
     private data class RouteStateBundle(
         val routeToSelectedTag: RouteResult?,
         val isRouteLoading: Boolean,
-        val routeError: String?
+        val routeError: String?,
+        val hasRequestedRoute: Boolean
     )
 
     private val routeStateFlow = combine(
         routeToSelectedTagFlow,
         isRouteLoadingFlow,
-        routeErrorFlow
-    ) { route, isLoading, error ->
-        RouteStateBundle(route, isLoading, error)
+        routeErrorFlow,
+        hasRequestedRouteFlow
+    ) { route, isLoading, error, hasRequested ->
+        RouteStateBundle(route, isLoading, error, hasRequested)
     }
 
     /**
@@ -318,7 +321,8 @@ class MapViewModel : ViewModel() {
             tagMovementSpeed = deviceState.tagMovementSpeed,
             routeToSelectedTag = routeState.routeToSelectedTag,
             isRouteLoading = routeState.isRouteLoading,
-            routeError = routeState.routeError
+            routeError = routeState.routeError,
+            hasRequestedRoute = routeState.hasRequestedRoute
         )
     }.stateIn(
         scope = viewModelScope,
@@ -595,12 +599,10 @@ class MapViewModel : ViewModel() {
     fun selectTag(tagId: String?) {
         if (selectedTagIdFlow.value != tagId) {
             selectedTagIdFlow.value = tagId
-            tagId?.let { id ->
-                val tag = devicesBridgeFlow.value.find { it.id == id && it.isTag }
-                if (tag != null) {
-                    fetchRoute(phonePositionFlow.value, tag.position)
-                }
-            }
+            routeToSelectedTagFlow.value = null
+            routeErrorFlow.value = null
+            isRouteLoadingFlow.value = false
+            hasRequestedRouteFlow.value = false
         }
     }
 
@@ -883,6 +885,7 @@ class MapViewModel : ViewModel() {
 
 
     fun fetchRoute(origin: GeoPoint, destination: GeoPoint) {
+        hasRequestedRouteFlow.value = true
         viewModelScope.launch {
             isRouteLoadingFlow.value = true
             routeErrorFlow.value = null
@@ -918,6 +921,38 @@ class MapViewModel : ViewModel() {
         val tag = selectedTagId?.let { id -> tags.find { it.id == id } } ?: tags.firstOrNull()
         if (tag != null) {
             fetchRoute(phonePositionFlow.value, tag.position)
+        }
+    }
+
+    suspend fun prepareRouteForTagFromAssistant(tag: UwbDevice) {
+        selectedTagIdFlow.value = tag.id
+        hasRequestedRouteFlow.value = true
+        isRouteLoadingFlow.value = true
+        routeErrorFlow.value = null
+        routeToSelectedTagFlow.value = null
+        
+        try {
+            val origin = phonePositionFlow.value
+            val originPt = RoutePoint(origin.latitude, origin.longitude)
+            val destPt = RoutePoint(tag.position.latitude, tag.position.longitude)
+            val repo = resolveGoogleRoutesRepository()
+            val result = repo.computeRoute(originPt, destPt, "WALK")
+            if (result.success) {
+                routeToSelectedTagFlow.value = result
+            } else {
+                routeErrorFlow.value = result.error ?: "Failed to get route"
+                routeToSelectedTagFlow.value = result
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "prepareRouteForTagFromAssistant failed: ${e.message}", e)
+            routeErrorFlow.value = e.message ?: "Unknown route error"
+            routeToSelectedTagFlow.value = RouteResult(
+                success = false,
+                error = e.message ?: "Unknown route error",
+                source = "GOOGLE_ROUTES"
+            )
+        } finally {
+            isRouteLoadingFlow.value = false
         }
     }
 

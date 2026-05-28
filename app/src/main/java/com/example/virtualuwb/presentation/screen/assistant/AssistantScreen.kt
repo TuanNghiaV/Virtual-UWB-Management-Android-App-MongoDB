@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.virtualuwb.domain.model.AssistantMessage
 import com.example.virtualuwb.presentation.viewmodel.MapUiState
+import com.example.virtualuwb.presentation.viewmodel.MapViewModel
 import kotlin.math.max
 
 private val ScreenBackground = Color(0xFFF9FAFB)
@@ -37,6 +38,7 @@ private val SubtitleColor = Color(0xFF6B7280)
 @Composable
 fun AssistantScreen(
     uiState: MapUiState,
+    mapViewModel: MapViewModel,
     modifier: Modifier = Modifier,
     viewModel: AssistantViewModel = viewModel()
 ) {
@@ -124,7 +126,7 @@ fun AssistantScreen(
                 item(key = "suggestions") {
                     SuggestionChipsItem(
                         suggestions = suggestions,
-                        onSuggestionClick = { viewModel.sendMessage(uiState, it) }
+                        onSuggestionClick = { viewModel.sendMessage(uiState, mapViewModel, it) }
                     )
                 }
             }
@@ -177,12 +179,12 @@ fun AssistantScreen(
                         maxLines = 3,
                         enabled = !isLoading,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { viewModel.sendMessage(uiState) })
+                        keyboardActions = KeyboardActions(onSend = { viewModel.sendMessage(uiState, mapViewModel) })
                     )
 
                     val canSend = inputText.isNotBlank() && !isLoading
                     FilledIconButton(
-                        onClick = { viewModel.sendMessage(uiState) },
+                        onClick = { viewModel.sendMessage(uiState, mapViewModel) },
                         enabled = canSend,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = if (canSend) UserMessageBubble else Color(0xFFE5E7EB),

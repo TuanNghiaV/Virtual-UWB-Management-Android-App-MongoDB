@@ -180,7 +180,10 @@ fun AppNavHost(
                 )
             }
             composable(AppDestination.Assistant.route) {
-                AssistantScreen(uiState = uiState)
+                AssistantScreen(
+                    uiState = uiState,
+                    mapViewModel = viewModel
+                )
             }
             composable(AppDestination.Debug.route) {
                 DebugScreen(

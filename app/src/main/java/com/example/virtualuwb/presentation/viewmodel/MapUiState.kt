@@ -44,7 +44,8 @@ data class MapUiState(
     val tagMovementSpeed: Int = 0,
     val routeToSelectedTag: RouteResult? = null,
     val isRouteLoading: Boolean = false,
-    val routeError: String? = null
+    val routeError: String? = null,
+    val hasRequestedRoute: Boolean = false
 ) {
     // ── Convenience properties ───────────────────────────────────────────
 
