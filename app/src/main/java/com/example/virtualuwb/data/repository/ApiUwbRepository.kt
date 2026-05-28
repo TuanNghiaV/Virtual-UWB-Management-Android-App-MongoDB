@@ -31,6 +31,7 @@ class ApiUwbRepository : UwbRepository {
 
     suspend fun refreshDevices() {
         try {
+            Log.d("ApiConfig", "MONGODB_API_BASE_URL=$baseUrl")
             val response: MongoResponse<MongoUwbDeviceDto> = MongoClientProvider.client
                 .get("$baseUrl/api/devices")
                 .body()

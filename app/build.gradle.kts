@@ -30,7 +30,7 @@ android {
         buildConfigField(
             "String",
             "MONGODB_API_BASE_URL",
-            "\"${properties.getProperty("MONGODB_API_BASE_URL") ?: "http://10.0.2.2:3001"}\""
+            "\"${properties.getProperty("MONGODB_API_BASE_URL") ?: "https://virtualuwb-backend.onrender.com"}\""
         )
         
         manifestPlaceholders["MAPS_API_KEY"] = properties.getProperty("MAPS_API_KEY") ?: ""

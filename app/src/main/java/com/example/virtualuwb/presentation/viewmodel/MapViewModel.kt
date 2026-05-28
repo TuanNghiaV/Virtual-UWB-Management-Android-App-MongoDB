@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
+import com.example.virtualuwb.data.repository.RepositoryProvider
+
 /**
  * ViewModel for the Indoor Map screen.
  *
@@ -42,10 +44,10 @@ import kotlin.random.Random
 class MapViewModel : ViewModel() {
 
     private val localRepository = FakeUwbRepository()
-    private val apiRepository = ApiUwbRepository()
+    private val apiRepository = RepositoryProvider.apiUwbRepository
 
     private val localGeofenceRepository = FakeGeofenceRepository()
-    private val apiGeofenceRepository = ApiGeofenceRepository()
+    private val apiGeofenceRepository = RepositoryProvider.apiGeofenceRepository
 
     private var activeRepository: UwbRepository = apiRepository
     private var activeGeofenceRepository: GeofenceRepository = apiGeofenceRepository
